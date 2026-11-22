@@ -361,9 +361,23 @@ module v35_sfr (
     // (F4c) DMA: DMAM's mode, W and EDMA live in v35_dma (read back from it); DMAC in the storage
     wire [7:0] dmam0, dmam1;
     wire [1:0] dic;
+    // (WO38) DIC's IF is set in the last transfer, at its cycle's start (the bus unit's DMA
+    // window `dk` rising in the transfer the EU marked the last, `dm_last`): passage.py
+    // RESULTS4 section 4.1, f5_pd_dl0 / dl7 / d_*: the request behaves as an NMI edge half a
+    // clock before the last transfer's write strobe starts, not at the service's end. v35_dma's
+    // `rs` (the CPU resuming, which set it before) sets the IF from the TC update's pending
+    // flag; this start is the earlier of the two (the TC update is the routine's first act)
+    reg        dl_q = 1'b0;
+    always_ff @(posedge clock) begin
+        if (!reset_n)
+            dl_q <= 1'b0;
+        else if (ce_a)
+            dl_q <= dk && dm_last;
+    end
+    wire       dl_go = dk && dm_last && !dl_q;
     v35_dma dma (.clock, .reset_n, .ce_a, .we(p_we), .w_off(wo_b), .w_lo,
                  .dmac0(st[8'hA0]), .dmac1(st[8'hA2]), .dmarq(input_levels[7:6]),
-                 .take(dm_take), .tend(dm_tend), .tlast(dm_tlast), .rs(dm_rs), .smp(dm_smp), .dmam0, .dmam1,
+                 .take(dm_take), .tend(dm_tend), .tlast(dm_tlast), .rs(dm_rs || dl_go), .smp(dm_smp), .dmam0, .dmam1,
                  .dm_v, .dm_go, .tk_ch(dm_ch), .tk_in(dm_in), .tk_out(dm_out), .tk_w(dm_w),
                  .tk_ps(dm_ps), .tk_pd(dm_pd), .dic);
     // the IF bits raised: SEIC0 SRIC0 STIC0 (3-5), SEIC1 SRIC1 STIC1 (6-8), TMIC0-2 (9-11), (F4c)
@@ -584,7 +598,8 @@ endmodule
 //             `sgo`, the take strobes); STOP's settling count and HALT's release; `iack` (the entry's
 //             IVEC word) clears the taken source's IF and sets its level in ISPR (NMI: clears
 //             its request); FINT clears ISPR's highest-priority bit (f3_prio)
-//   HALT      `wake`: NMI or any IF with MK 0 (and MS 0); f3_vec: a masked request does not
+//   HALT      `wake`: NMI or any IF with MK 0 (and MS 0) ((WO33) at its level's offer slot, through
+//             the offer's passage: below); f3_vec: a masked request does not
 //             release HALT
 // The resolution is a pipeline of registers (the groups' keys, two minimum stages, the offer),
 // two CPU clocks from an IF / MK / PR / ISPR change to the offer: the latency the sequencer's
@@ -607,8 +622,10 @@ module v35_intc (
     // (step B) the sequencer's take points and acts (v35_useq; tick A unless noted)
     input  wire        x_disp,          // the dispatch word executes: an instruction boundary
     input  wire        x_tki,           // a TKI word executes: a string's take point
-    input  wire        x_end,           // an E word executes ...
-    input  wire        x_nb,            // ... marking its end no boundary (nb: a prefix, EI, DI, ...)
+    input  wire        x_end,           // (WO38) the instruction's look (v35_useq: the word releasing
+                                        //   the next opcode, held open to the dispatch)
+    input  wire        x_nb,            // an E word executes marking its end no boundary (nb: a
+                                        //   prefix, EI, DI, ...)
     input  wire        x_nbi,           // ... dropping the arms (seg=NBI: POP PSW, RETI, FINT)
     input  wire        halted,          // the sequencer's HALT stall (its register)
     input  wire        w_stop,          // (F4d) the word is STOP's halt word (a level)
@@ -618,6 +635,9 @@ module v35_intc (
     input  wire        int_on,          // (F3b) the INT request (v35_sfr's register)
     input  wire        ie,              // (F4p) PSW.IE (the EU's register): a group whose first
                                         // requesting member is vectored competes only with IE 1
+    input  wire        ie_r,            // (WO40) PSW.IE as the EU's register holds it (`ie` is the
+                                        // datum's IE in the clock a PSW load reads it): the scan's
+                                        // restart by IE's rise (`ie_q`, `ie_up`)
     input  wire        brk,             // (F3) PSW.BRK (the EU's register): the single step
     input  wire [14:0] pf_set,          // (F4) the peripherals' requests (ce_a strobes: IF <- 1)
     // (F4b) macro service: the sources' macro-service control registers (v35_sfr's storage, in
@@ -654,13 +674,15 @@ module v35_intc (
 );
     reg         ms_v;                   // a macro-service request is pending
     reg  [2:0]  mc_ch;                  // the macro service's channel (the take's)
-    reg         it_v;                   // (F3b) INT is offered (the take strobe take_i covers it)
-    reg         ir_h;                   // (qprobe round 14-16) a maskable request is raised by the scan (held)
-    reg         ird = 1'b0;             // ... and its passage to the EU: one register on the scan's divided clock (sc[0])
-    wire        ir_v = ir_h && ird;     // a maskable request is offered
+    // (WO35) the request flip-flop `ir_h` (R) for the maskable sources, INT and the scan's slots,
+    // first come; `ir_int` names INT as the one that set it; `ir_v` R seen at the EU's sample, the
+    // fixed delay behind R passed (the line, below)
+    reg         ir_h;                   // (qprobe round 14-16) a maskable request is raised (held): R
+    reg         ir_int = 1'b0;          // (WO35) ... by INT (else by a slot: its source in ir_i ...)
+    wire        ir_v;                   // a maskable request is offered (R through the line)
     reg  [4:0]  ir_vec;
     reg         nmi_v;                  // NMI is pending
-    reg         i_wake;                 // HALT's release: NMI or an unmasked IF, INT
+    reg         i_wake;                 // HALT's release: NMI, an unmasked IF ((WO33) at its slot), INT
     // (F4d) STOP stands (`stp`, below): the INTP0-2 samplers hold their last levels (no edge is
     // seen while stopped: f4_stop stop_intp, an INTP0 pulse in STOP leaves its IF 0); NMI's
     // keeps sampling (it releases STOP)
@@ -719,13 +741,30 @@ module v35_intc (
     // lattice moves with the sled's parity, never with the absolute parity). It was a toggle
     // from reset (`ph`), which no program restarts
     reg  [3:0] sc = 4'd0;               // the scan's counter (the scan below)
-    wire       dv = sc[0];              // the scan's divided clock
-    wire [3:0] edge_c = ((es & lvn & ~lv) | (~es & ~lvn & lv)) & {{3{!frz && dv}}, 1'b1};
+    // (WO33) the scan's divided clock: a toggle restarted with the scan (sc[0] while no offer
+    // slot stands; a slot holds the counter for two clocks, the toggle runs on, so the sampler
+    // keeps its two-clock lattice from the restart)
+    reg        dv = 1'b0;
+    // (WO35) NMI's edge catch has half a clock (f5_pb_w_n: a pulse of 16 ticks is caught, 12 is
+    // not): the pin is also sampled at ce_b (`nmi_h`), and an edge between the last ce_a sample
+    // and it, or between it and this ce_a's, is NMI's edge at this ce_a (a level that stands
+    // gives its edge at the same ce_a as before)
+    reg        nmi_h = 1'b1;
+    wire       nmi_e = es[0] ? ((nmi_h && !lv[0]) || (lvn[0] && !nmi_h))
+                             : ((!nmi_h && lv[0]) || (!lvn[0] && nmi_h));
+    wire [3:0] edge_c = {((es[3:1] & lvn[3:1] & ~lv[3:1]) | (~es[3:1] & ~lvn[3:1] & lv[3:1]))
+                         & {3{!frz && dv}}, nmi_e};
+    always_ff @(posedge clock) begin
+        if (!reset_n)
+            nmi_h <= lvn[0];
+        else if (ce_b)
+            nmi_h <= lvn[0];
+    end
     reg        nmi_p = 1'b0;
     // (qprobe rounds 12-13, spec 8 A3 / spec 9 C3-C4) NMI's edge reaches its request (nmi_p)
     // NMI_DLY clocks after it is sampled (`nd`, a down-count loaded by the edge). (qprobe round
     // 16) the round-12 free-running grid is gone: it is the level scan below, which every
-    // maskable source goes through. NMI_DLY is the round-12 figure, not re-derived
+    // maskable source goes through. (WO35) NMI_DLY is ACK and RESP (below)
     // INTP0-2's edge reaches its IF bit INTP_DLY clocks after it is sampled (`idl`, one
     // down-count a pin): the pin path's latency measured on the socket (QPr14ninc: the
     // instruction a pin edge is taken in front of moves at the edge 72.5 clocks from M0 on
@@ -733,11 +772,38 @@ module v35_intc (
     // software request does. A measured latency, not a read mechanism (as NMI_DLY).
     // (WO32) Not re-derived: with the sampler on `dv` the program's read of the IF (phase.py
     // f5_ph_e / e1) wants 5 (the only value with silicon's lattice parity within the half-clock
-    // pin phase), the pin's takes want 11 (qprobe r14n / r12j / r26i schedule families: 5 loses
-    // 155 runs of 13,950 that 11 matches). The six clocks lie between the flag and the take
-    // (Q72); one delay cannot hold both, so 11 (the takes') is kept
-    localparam logic [3:0] NMI_DLY = 4'd10;
-    localparam logic [3:0] INTP_DLY = 4'd11;
+    // pin phase), the pin's takes wanted 11 (qprobe r14n / r12j / r26i schedule families).
+    // (WO33) 5: with the scan's slot and the offer's passage (below) the timer's cut-off is
+    // silicon's, and 5 gives silicon's pin cut-off for the take too (lattice.py f5_la_h7 / h0:
+    // the latest edge taken 80.4 / 82.4 clocks after mark 1 on the RTL's pin, silicon 80.9 /
+    // 82.9 on its, the RTL's pin half a clock early) as for the flag read (f5_la_p, f5_ph_e):
+    // one delay, the pin's (RESULTS section 3: the pin is 3 to 5 clocks behind a count-out)
+    // (WO35) the line (validation/v35s/passage.py, RESULTS2 sections 6 and 7): the request
+    // flip-flop R (`ir_h`) is seen at the EU's sample a fixed delay after it is set, counted by
+    // `rq_c` (loaded at the set, R held: a counter and a shift of R are alike on every pin):
+    //   RESP  8 clocks from R's set to the boundary's sample: the ACCEPTED MEASURED CONSTANT
+    //         (the user's ruling of 2026-11-20). Three independent readings give it: INT's
+    //         rising edge to the boundary 10 clocks less its two samples' way in (f5_pa_i_*,
+    //         f5_pb_w_i: a two-clock pulse is taken 18 clocks after it fell), IE's load to the
+    //         boundary with INT standing (f5_pa_e_pop: POP PSW ; INC ; INC), and EI's own eight
+    //         idle words behind its IE rise (f5_pa_q_ei*, lattice.py k*). No mechanism is known:
+    //         not the scan, not the pin's level, not a commit point (f5_pb_*)
+    //   ACK   the controller's stage between a slot's claim of R and the line, 5 clocks: a slot
+    //         with IE to the boundary is 14 clocks (f5_pa_q_*: IE rising in the slot's first
+    //         clock; lattice.py: the vector read 30 clocks behind the slot): its own clock, ACK
+    //         and RESP; NMI's edge to the boundary the same 14 (f5_pa_n_*: the catch, ACK, RESP),
+    //         INT's 10 (RESP and the two samples: f5_pa_i_*). A measured stage, named so; a slot
+    //         standing 2 clocks after an INT edge still claims R (f5_pb_v0 / v7)
+    // The count loaded is the delay less two clocks: the set's own clock (R's register is loaded
+    // at its end) and the sample word's (the sample is registered into `ie_e` on that word and the
+    // dispatch reads it on the next); a slot's set adds ACK (`ACK_N`, below)
+    localparam logic [3:0] RESP = 4'd8;
+    localparam logic [3:0] ACK = 4'd5;
+    // (WO35) NMI's request (`nmi_p`, then `nmi_v`) runs the controller's ACK and the line's RESP
+    // from the edge's catch: the count less the catch's clock, the sample word's and nmi_p's
+    // register (10: the round-12 figure, now derived)
+    localparam logic [3:0] NMI_DLY = ACK + RESP - 4'd3;
+    localparam logic [3:0] INTP_DLY = 4'd5;
     reg  [3:0] nd = 4'd0;
     reg  [3:0] idl [0:2];
     initial for (int k = 0; k < 3; k++) idl[k] = 4'd0;
@@ -758,7 +824,16 @@ module v35_intc (
     reg  [3:0] ir_i = 4'd0;
     reg  [2:0] ir_l = 3'd0;
     reg        ir_bs = 1'b0;            // (F3b) the offer's member has ENCS 1
-    reg        it_sel = 1'b0;           // (F3b) a take now takes INT, not the offer
+    // (WO41) FINT's clear is written back on the clock after FINT's first word (the read and its
+    // priority encode on that word, the write a register behind it): the scan sees ISPR cleared
+    // one clock after the word (passage.py f5_pi_*, passage8 RESULTS rule 2: X = R - 12 with FINT's
+    // first word on R - 11 in silicon's pi frames)
+    reg         fint_q = 1'b0;
+    always_ff @(posedge clock)
+        if (!reset_n)
+            fint_q <= 1'b0;
+        else if (ce_a)
+            fint_q <= fint;
     function automatic logic [7:0] fint_f(input logic [7:0] p);
         fint_f = p;
         for (int b = 7; b >= 0; b--)
@@ -803,10 +878,10 @@ module v35_intc (
             end
             if (take_n || take_i || take_s) begin
                 tk_ms <= 1'b0;
-                // (F3b) INT chosen over the controller's offer (it_sel) is not the offer's take
-                tk_k <= {take_n, take_i && !take_n && !it_sel, take_s && !take_n && !take_i};
-                tk_int <= take_i && !take_n && it_sel;
-                tk_bs <= take_i && !take_n && !it_sel && ir_bs;
+                // (F3b) INT's take (R set by INT: ir_int) is not the offer's take
+                tk_k <= {take_n, take_i && !take_n && !ir_int, take_s && !take_n && !take_i};
+                tk_int <= take_i && !take_n && ir_int;
+                tk_bs <= take_i && !take_n && !ir_int && ir_bs;
                 tk_lv <= ir_l;
                 tk_i <= ir_i;
                 tk_l <= ir_l;
@@ -826,7 +901,7 @@ module v35_intc (
             end
             if (iack && tk_k[1])
                 ispr <= ispr | (8'd1 << tk_l);
-            else if (fint)
+            else if (fint_q)
                 ispr <= fint_f(ispr);
             if (nd == 4'd1)
                 nmi_p <= 1'b1;          // (qprobe round 12-13) NMI's edge after the pin's delay
@@ -886,7 +961,6 @@ module v35_intc (
         mc_ch = 3'd0;
         ms_mode = 3'd0;
         ms_dir = 1'b0;
-        it_v = 1'b0;
         tk_bs = 1'b0;
         tk_lv = 3'd0;
         tk_int = 1'b0;
@@ -918,76 +992,247 @@ module v35_intc (
     // restarts it too (`ic_st`: the IF write's own strobe; f5_ph_a / b / c: the period of the
     // takes after EI counts from the store; Q78 r18s: the vector read a fixed 50 clocks after
     // the store's write cycle as the store moves through 24 clocks)
-    reg        ie_q = 1'b0, ei_w = 1'b0;
-    wire       ei_set = ie && !ie_q && ei_w;
+    // (WO33, validation/v35s/lattice.py series a b c e: RESULTS section 1) any rise of IE restarts
+    // the scan, whatever raised it (EI, POP PSW, RETI: `ie_up`), and so does a store to a request
+    // control register (`ic_st`, any IE); nothing else does. A rise of IE in an offer slot (`sl`,
+    // below) does not restart it: in the slot's first clock the slot's request is raised instead,
+    // in its second nothing happens (k1 .. k9: the two phases of the 18-clock period)
+    reg        ie_q = 1'b0;
+    // (WO35) the offer slot: a level holding a request (lq) gets two clocks in front of its own
+    // two (the round 16 + 2 a level holding one; lattice.py), the slot's first clock the level's
+    // first (`sl_1`: the restart + 2 L when no lower level holds one, RESULTS section 9 B);
+    // `sl` 1 the slot's second clock, 2 the level's first clock behind the slot (the counter
+    // held through both)
+    reg  [1:0] sl = 2'd0;
+    wire       sl_1;
+    // (WO35) the line: RESP, ACK (with the NMI delay, above)
+    wire       [3:0] ACK_N;
+    reg  [3:0] rq_c = 4'd0;
+    assign ir_v = ir_h && rq_c == 4'd0;
+    // (WO35) HALT's release with IE 0 at a slot (lattice.py w1 .. w9, WO33): decided in the
+    // slot's second clock if the HALT stands then, it runs the controller's line as an offer
+    // would (`hw_c`, one count: ACK and RESP as R's from a slot) and releases one stage before
+    // the offer would reach the sample
+    reg  [3:0] hw_c = 4'd0;
+    // (WO35) INT's two samples: R is set by INT seen high on two consecutive clocks (f5_pb_w_i:
+    // a pulse two clocks wide is taken, one clock wide is not), the samples taken at ce_b from
+    // v35_sfr's pin register (the pin as it stood at the clock's start: an edge half a clock
+    // later is caught a clock later, f5_pa_i_wr against i_wr_h), R set at the ce_a behind them
+    reg        int_q = 1'b0, int_q2 = 1'b0;
+    wire       int_2 = int_q && int_q2;
+    // (WO40) the rise that restarts the scan is IE's in the PSW register (`ie_r`); the slot's
+    // claim (`sl_raise`) reads IE from the datum at the PSW word's read (`ie`): passage.py
+    // f5_pe_* (the claim on silicon's clock) with periph f4_tb and f5_pa_q_reti7 (the restart a
+    // clock behind it)
+    wire       ie_up = ie_r && !ie_q;
     wire       ic_st = wr && (|ic_we);
+    // (WO39) a rise in a slot's first clock never restarts the scan: that slot claims R whatever
+    // better level is pending (passage.py f5_pe_*: WO38's `sl_ie` was not silicon's rule)
+    // (WO40) where the rise falls is decided at the datum's rise (`d_up`, `ie`), the restart made
+    // at the register's (`ie_up`): a POP PSW / RETI rise outside a slot's first two clocks leaves
+    // `rs_k`, and the register's write a clock later restarts the scan whatever the scan then
+    // stands at (no claim in that clock); EI's rise is the register's own (both in one clock)
+    reg        ie_dq = 1'b0;
+    reg        rs_k = 1'b0;
+    wire       d_up = ie && !ie_dq;
+    wire       rs_ie = ie_up && (d_up ? (!sl_1 && sl != 2'd1) : rs_k);
+    wire       rs_sc = ic_st || rs_ie;
     always_ff @(posedge clock) begin
         if (!reset_n) begin
+            ie_dq <= 1'b0;
+            rs_k <= 1'b0;
             ie_q <= 1'b0;
-            ei_w <= 1'b0;
-        end else if (ce_a) begin
-            ie_q <= ie;
-            if (x_end)
-                ei_w <= x_nb && !x_nbi;
+            int_q <= 1'b0;
+            int_q2 <= 1'b0;
+        end else begin
+            if (ce_a) begin
+                ie_q <= ie_r;
+                ie_dq <= ie;
+                rs_k <= d_up && !ie_r && !sl_1 && sl != 2'd1;
+            end
+            if (ce_b) begin
+                int_q <= int_on;
+                int_q2 <= int_q;
+            end
         end
     end
+    // (WO33, RESULTS sections 2 and 7 B) the levels holding a request the scan can offer: lq[L],
+    // some group has an unmasked vectored request (rq) and its level is L, L above the highest
+    // level in service (ISPR clear at L and below); IE plays no part (the slot stands with IE 0
+    // too); macro service stays out (not measured: it is taken as before, ms_v). And the slot's
+    // request (`sel`): the first group in the default order whose level is the scan's, its first
+    // requesting member; both registered on ce_b from registers. (WO38) The exact form: any
+    // level's slot raises its own request while R is clear, first come (passage.py RESULTS3
+    // section 1.3, f5_pc_h70 / h07 / h73: a level found at its slot holds R and its vector
+    // although a better level's flag stands or arrives after; WO33's reduced form, the slot
+    // raising only at the highest level holding a request, gave the take to the better level a
+    // round later)
+    reg  [7:0]  lq = 8'd0;
+    wire [7:0]  lq_n;
+    reg         sel_v = 1'b0;
+    reg  [3:0]  sel_i = 4'd0;
+    reg         sel_bs = 1'b0;
+    function automatic logic [7:0] lv_bit(input logic [2:0] l, input logic any);
+        lv_bit = any ? 8'(8'd1 << l) : 8'd0;
+    endfunction
+    wire [5:0]  g_any = {rq[14], |rq[8:6], |rq[5:3], |rq[2:0], |rq[13:12], |rq[11:9]};
+    wire [2:0]  g_lvl [0:5];
+    assign g_lvl[0] = pr_of(4'd9);
+    assign g_lvl[1] = pr_of(4'd12);
+    assign g_lvl[2] = pr_of(4'd0);
+    assign g_lvl[3] = pr_of(4'd3);
+    assign g_lvl[4] = pr_of(4'd6);
+    assign g_lvl[5] = 3'd7;
+    wire [7:0]  isp_ok;                 // level L is above the highest in service
+    genvar li;
+    generate
+        for (li = 0; li < 8; li++) begin : g_ispok
+            assign isp_ok[li] = ~|ispr[li:0];
+        end
+    endgenerate
+    // a group's first requesting vectored member (the fixed order within the group)
+    function automatic logic [3:0] first_of(input logic [3:0] i0, input int n);
+        first_of = i0;
+        for (int m = n - 1; m >= 0; m--)
+            if (rq[i0 + 4'(m)])
+                first_of = i0 + 4'(m);
+    endfunction
+    wire [3:0]  g_first [0:5];
+    assign g_first[0] = first_of(4'd9, 3);
+    assign g_first[1] = first_of(4'd12, 2);
+    assign g_first[2] = first_of(4'd0, 3);
+    assign g_first[3] = first_of(4'd3, 3);
+    assign g_first[4] = first_of(4'd6, 3);
+    assign g_first[5] = 4'd14;
+    assign lq_n = (lv_bit(g_lvl[0], g_any[0]) | lv_bit(g_lvl[1], g_any[1]) | lv_bit(g_lvl[2], g_any[2])
+                   | lv_bit(g_lvl[3], g_any[3]) | lv_bit(g_lvl[4], g_any[4]) | lv_bit(g_lvl[5], g_any[5]))
+                  & isp_ok;
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            lq <= 8'd0;
+            sel_v <= 1'b0;
+            sel_i <= 4'd0;
+            sel_bs <= 1'b0;
+        end else if (ce_b) begin
+            lq <= lq_n;
+            sel_v <= 1'b0;
+            sel_i <= 4'd0;
+            sel_bs <= 1'b0;
+            for (int g = 5; g >= 0; g--)
+                if (g_any[g] && g_lvl[g] == sc[3:1]) begin
+                    sel_v <= isp_ok[sc[3:1]];
+                    sel_i <= g_first[g];
+                    sel_bs <= g != 5 && ic_b[8 * g_first[g] + 4];
+                end
+        end
+    end
+    // (WO35) the slot's first clock: the scan at a level's first clock (sc[0] 0) with a request
+    // at that level (lq), no slot standing. The raise: in it, IE 1 as it stands (a rise in this
+    // clock included); (WO38) at any level (the exact form, above); otherwise the slot passes
+    // (as with IE 0)
+    assign sl_1 = sl == 2'd0 && !sc[0] && lq[sc[3:1]];
+    // (WO39) A rise of IE in a slot's first clock (EI, POP PSW, RETI) raises that slot's request
+    // at once, whatever better level also holds one (passage.py f5_pe_*: the worse level's vector
+    // at the first boundary in all eleven two-level programs and in a handler's RETI, f5_pe_h4),
+    // as a slot does with IE standing: first come
+    wire  sl_raise = sl_1 && ie && sel_v;
+    // (WO35, RESULTS2 section 3: f5_pb_f*) the round with a level in service: the counter wraps
+    // after the highest-priority level in service (P: isp_l), 2 (P + 1) clocks; FINT clears it
+    // and the count runs on upward from where it stands
+    // (WO40) WO39's switch FINT_RUN (no wrap on FINT's own clock) is gone: the count wraps by the
+    // rule above on every clock (passage.py f5_pe_h4 / f5_pf_*: build/overseer/wo40/rtl.md); (WO41)
+    // FINT's clear reaches ISPR a register behind FINT's first word (`fint_q`), and the round in
+    // progress runs on to level 7 (passage8 RESULTS rule 2)
+    wire  sc_wrap = !isp_l[3] && sc == {isp_l[2:0], 1'b1};
+    // (WO35) R's set: a slot's raise, or INT seen high twice with IE 1, only while R is clear;
+    // the slot first when both come in one clock (f5_pb_v0 / v7: a slot standing 2 clocks after
+    // INT's edge wins). With both standing when IE rises, level 0 first (f3_int: PR 0 goes
+    // before INT; the order is not measured otherwise): INT waits out the rise's clock while a
+    // level-0 request stands, and the level-0 slot (the restart's first clock) claims R
+    wire  r_set_i = int_2 && ie && !(ie_up && lq[0]);
+    wire  sl_set = sl_raise && !rs_sc;    // (WO40) a restart in the slot's clock: no claim
+    assign ACK_N = sl_set ? ACK : 4'd0;
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             for (j = 0; j < 3; j++) k2[j] <= '0;
             ir_h <= 1'b0;
-            ird <= 1'b0;
+            ir_int <= 1'b0;
+            rq_c <= 4'd0;
+            hw_c <= 4'd0;
             nmi_v <= 1'b0;
             i_wake <= 1'b0;
-            it_v <= 1'b0;
-            it_sel <= 1'b0;
             ms_v <= 1'b0;
             ms_i <= 4'd0;
             sc <= 4'd0;
+            sl <= 2'd0;
+            dv <= 1'b0;
         end else if (ce_a) begin
             k2[0] <= kmin(k1[0], k1[1]);
             k2[1] <= kmin(k1[2], k1[3]);
             k2[2] <= kmin(k1[4], k1[5]);
-            // (qprobe round 14-16, spec 10 I1 / I3) the level scan: a vectored request is raised
-            // to the EU (ir_v) when the scan (`sc`: level sc[3:1], two clocks a level, 16 a
-            // round; EI and a request control store restart it at level 0, `ei_set`, `ic_st`)
-            // is at the resolution's winner's level;
-            // once raised it is the one pending request (its source, vector, level and bank bit
-            // held) until its IF, its mask, IE or the level against ISPR takes it away (the take
-            // clears IF): a later request of any level does not displace it
-            sc <= (ei_set || ic_st) ? 4'd0 : sc + 4'd1;
-            // the raised request reaches the EU through one register clocked on the scan's
-            // divided clock (`dv` = sc[0] == 1: 1 to 2 clocks by the raise's phase; Q49's 8 to 12
-            // clocks from EI's last word to level 0 is this and the resolution's stages).
-            // (WO32) It was two registers on the free-running toggle `ph` (3 or 4 clocks by the
-            // parity of EI's absolute clock, which silicon never shows: phase.py f5_ph_a / b / c /
-            // s, every absolute phase gives one take; RESULTS section 8 trial S1). With the
-            // restart at IE's rise (not EI's first word, which this module does not see) one
-            // register gives silicon's clock after EI (50 at level 7)
-            if (dv)
-                ird <= ir_h;
-            else if (!ir_h)
-                ird <= 1'b0;
-            if (ir_h)
-                ir_h <= rq[ir_i] && ie && {1'b0, ir_l} < isp_l;
-            else begin
-                ir_h <= kw.v && !kw.ms && {1'b0, kw.lvl} < isp_l && kw.lvl == sc[3:1];
-                ir_vec <= vec_of(kw.idx);
-                ir_i <= kw.idx;
-                ir_l <= kw.lvl;
-                ir_bs <= kw.bs;
+            // (qprobe round 14-16, spec 10 I1 / I3) the level scan (`sc`: level sc[3:1], two
+            // clocks a level, 16 a round; (WO33) a rise of IE and a request control store restart
+            // it at level 0, `rs_sc`; (WO35) 2 (P + 1) with level P in service). (WO35) A level
+            // holding a request (lq) gets its slot at its first clock (`sl_1`), the counter held
+            // for the slot's second clock (`sl` 1) and the level's first (`sl` 2): the round is
+            // 16 + 2 clocks a level holding a request
+            if (rs_sc) begin
+                sc <= 4'd0;
+                sl <= 2'd0;
+                dv <= 1'b0;
+            end else begin
+                dv <= !dv;
+                case (sl)
+                    2'd0: if (sl_1) sl <= 2'd1; else sc <= sc_wrap ? 4'd0 : sc + 4'd1;
+                    2'd1: sl <= 2'd2;
+                    default: begin
+                        sl <= 2'd0;
+                        sc <= sc + 4'd1;
+                    end
+                endcase
             end
+            // (WO35) R (`ir_h`): set first come (above), held when INT drops (f5_pb_w_i, g_i);
+            // cleared by IE 0 (DI, a PSW load: f5_pb_d_*, k_i, z_i: no take ever pushes IE 0, a
+            // caught request is gone after the next EI) and by the take; a slot's request also by
+            // its IF, its mask or the level against ISPR (as before; not measured). The slot's
+            // raise loads its request (`sel`); the line's count (`rq_c`) loads at the set
+            // (WO38) a slot's R is dropped by any store to a request control register (`ic_st`;
+            // RESULTS3 section 1.3, f5_pc_m_mk / m_if / m_id / m_pr: the mask, the flag cleared,
+            // the register rewritten as it stands, another level: no take; the request, still
+            // standing, is found again from the scan's restart the store makes and runs its
+            // whole count), and no slot sets R on the store's clock. INT's R is not (not
+            // measured: INT is not a controller request)
+            if (ir_h) begin
+                ir_h <= ie && !take_i && (ir_int || (!ic_st && rq[ir_i] && {1'b0, ir_l} < isp_l));
+                if (rq_c != 4'd0)
+                    rq_c <= rq_c - 4'd1;
+            end else begin
+                ir_h <= sl_set || r_set_i;
+                ir_int <= !sl_set;
+                rq_c <= ACK_N + RESP - 4'd2;
+                ir_vec <= vec_of(sel_i);
+                ir_i <= sel_i;
+                ir_l <= sc[3:1];
+                ir_bs <= sel_bs;
+            end
+            // (WO35) HALT's release with IE 0: decided in a slot's second clock with the HALT
+            // standing (any level), through the controller's line; the first slot's count runs
+            // out undisturbed (a later slot's second clock does not reload it: with two levels
+            // holding requests their slots come 10 clocks apart, less than the count, and a
+            // reload would hold the HALT for ever: lattice.py w2 / w4 / w9)
+            if (sl == 2'd1 && halted && !ie && hw_c == 4'd0)
+                hw_c <= ACK + RESP - 4'd2;
+            else if (hw_c != 4'd0)
+                hw_c <= hw_c - 4'd1;
             ms_v <= kw.v && kw.ms && {1'b0, kw.lvl} < isp_l;
             ms_i <= kw.idx;
-            // (F3b) INT (f3_int): taken before a pending request of any level but 0 (PR 1-7
-            // wait for INT's handler's RETI, PR 0 goes first); ISPR plays no part (INT sets no
-            // ISPR bit: the data book's "NMI and INT end without FINT"; f3_int: ISPR 00)
-            it_v <= int_on;
-            it_sel <= int_on && !(kw.v && !kw.ms && {1'b0, kw.lvl} < isp_l && kw.lvl == 3'd0);
             nmi_v <= nmi_p && !(iack && tk_k[2]);
-            // (F3b) INT releases HALT, IE 0 too (f3_int); (qprobe round 16) with IE 1 a maskable
-            // request releases it when the scan raises it to the EU (the release and the take
-            // in front of the instruction after HALT: QPr14t), with IE 0 when its IF is set
-            i_wake <= nmi_p || (ie ? ir_v : (|rq)) || int_on;
+            // (F3b) INT releases HALT with IE 0 (f3_int); (WO35) with IE 1 R releases it through
+            // the line one stage before the offer reaches the sample (WO33's place: the E word
+            // after HALT executes in the clock the offer arrives and the dispatch takes it as a
+            // running boundary's would); with IE 0 a slot's release (`hw_c`) one stage before
+            // an offer would arrive, the request left pending, the round going on
+            i_wake <= nmi_p || ir_v || (int_on && !ie) || (ir_h && rq_c == 4'd1) || hw_c == 4'd1;
         end
     end
 
@@ -996,16 +1241,20 @@ module v35_intc (
     // interrupt routine (urom/trap.uasm intr) instead of the instruction it popped when, the last
     // instruction's E word not marking the start as no boundary (`nb`: a prefix, EI, DI, a
     // segment register's load; f3_step), NMI is pending, or the controller offers a request and
-    // IE is 1 now and was 1 at the last start (`ie_arm`: EI's, POP PSW's and RETI's following
-    // instruction runs; f3_order), or PSW.BRK is 1 now and was at the last start (`brk_arm`: the
+    // IE is 1 ((WO35) `ie_arm`, IE at the last start, is gone for the maskable offer: R is cleared
+    // by IE 0 and needs the line's 8 clocks behind IE's rise; `mi_arm` keeps only the NBI rule:
+    // the start behind POP PSW, RETI and FINT takes no maskable request (f5_step2; f5_pa_e_reti:
+    // RETI's refetch outlasts the line, one X runs all the same), or PSW.BRK is 1 now and was at the last start (`brk_arm`: the
     // single step after each instruction that ran with BRK set; f3_step). NMI first, then the
     // offer, then the step (f3_step2 step_intp). Every term is a register; `igo` overrides the
     // sequencer's ROM address last (UROM_INT in place of the DISP word's target: the loader's
     // decoded entry is not behind it)
-    reg  ie_arm = 1'b0, brk_arm = 1'b0, nb_r = 1'b0;
+    reg  brk_arm = 1'b0, nb_r = 1'b0, mi_arm = 1'b0;
     wire g_n = nmi_v;
     // (qprobe round 13, spec 9 C3) NMI at a dispatch is the request as the E word that took the
-    // next opcode saw it (`ne`, loaded when an E word executes): the opcode taken then runs
+    // next opcode saw it (`ne`, loaded when an E word executes): the opcode taken then runs.
+    // (WO38) "the E word" here and below is the instruction's look (`x_end`, v35_useq: the word
+    // releasing the next opcode, held open over a dispatch held by the front end)
     reg  ne = 1'b0;
     wire g_nd = ne;
     // (qprobe round 14-16, spec 10 I2 / I3, spec 11 I7) the maskable offer and INT at a dispatch
@@ -1015,8 +1264,18 @@ module v35_intc (
     // `mf_e` as the E word saw it), NMI then at the handler's first instruction. The string's
     // take point (sgo, x_tki) reads the offer as it stands
     reg  ie_e = 1'b0, mf = 1'b0, mf_e = 1'b0;
-    wire g_i = ie_e && ie && ie_arm;      // (F3b) it_v: INT (the controller chooses)
-    wire g_it = (ir_v || it_v) && ie && ie_arm;
+    // (WO35) the sample (`ie_e`, R through the line) ANDed with IE at the dispatch: a request DI or
+    // POP PSW overtakes is never taken (f5_pb_d_*)
+    // (WO38) and R still standing at the dispatch: a request withdrawn after the look (R
+    // dropped by the mask, its flag, a request control store, ISPR) is not taken (RESULTS3
+    // section 1.3: silicon never takes it; from the look on it starts the entry and drops it
+    // where the vector is asked for, 10 clocks with no cycle: not built, the core takes nothing)
+    // (WO40) IE at the dispatch and the take point from the register (`ie_r`): the datum's bypass
+    // (`ie`) differs from it only in the clock a D word loads the PSW from a read (POP PSW's,
+    // RETI's), never a DISP or TKI word's clock (an E word stands between), so the take is the same
+    // and the bus datum leaves the take's enables (the tick-B path into tk_k / tk_i)
+    wire g_i = ie_e && ie_r && mi_arm && ir_h;
+    wire g_it = ir_v && ie_r && mi_arm;
     wire g_nd_f = g_nd && !(g_i && mf_e);
     wire g_s = brk && brk_arm;
     // (F4b) a macro-service request: taken at a start whatever IE (f4_ms ms_p0, IE 0); in HALT
@@ -1075,8 +1334,8 @@ module v35_intc (
     end
     always @(posedge clock) begin
         if (!reset_n) begin
-            ie_arm <= 1'b0;
             brk_arm <= 1'b0;
+            mi_arm <= 1'b0;
             nb_r <= 1'b0;
             ne <= 1'b0;
             ie_e <= 1'b0;
@@ -1087,14 +1346,16 @@ module v35_intc (
             rs_hlt <= 1'b0;
         end else if (ce_a) begin
             if (x_disp) begin
-                ie_arm <= ie;
                 brk_arm <= brk;
+                mi_arm <= 1'b1;
             end
             if (take_d)
                 tk_dm <= 1'b1;
             else if (take_n || take_m || take_i || take_s)
                 tk_dm <= 1'b0;
-            if (x_end)
+            // (WO38) the look (x_end) may come before the E word (an early `ro`) or stand open
+            // over the held dispatch: an E word marking no boundary sets it whenever it executes
+            if (x_end || x_nb)
                 nb_r <= x_nb || rs_hlt;
             // (qprobe round 13) NMI as the E word sees it; cleared by its take
             if (take_n)
@@ -1103,25 +1364,25 @@ module v35_intc (
                 ne <= nmi_v;
             // (qprobe round 14-16) the maskable offer / INT and its order against NMI, as the E
             // word (or the HALT stall) sees them; cleared by their take
-            mf <= (ir_v || it_v) && (mf || !nmi_v);
+            mf <= ir_v && (mf || !nmi_v);
             if (take_i) begin
                 ie_e <= 1'b0;
                 mf_e <= 1'b0;
             end else if (x_end || halted) begin
-                ie_e <= ir_v || it_v;
+                ie_e <= ir_v;
                 mf_e <= mf;
             end
             // (F5c) POP PSW, RETI, FINT (seg=NBI on the E word): the interrupt arms dropped, so
             // the next start takes neither the maskable interrupt nor the single step (NMI,
             // macro service and DMA are not held); the dispatch reloads them from the PSW
             if (x_nbi) begin
-                ie_arm <= 1'b0;
                 brk_arm <= 1'b0;
+                mi_arm <= 1'b0;
             end
             if (take_d || take_m)
                 rs_hlt <= ms_hlt;
-            else if (x_end)
-                rs_hlt <= 1'b0;
+            else if (x_disp)
+                rs_hlt <= 1'b0;     // (WO38) to the routine's dispatch (its look may repeat)
             // (F4b) the stall of a HALT seen since the last start that was not a macro service's
             if (halted)
                 ms_hlt <= 1'b1;
@@ -1159,6 +1420,29 @@ module v35_intc (
         end
     end
     assign wake = (stp || w_stop) ? st_rel : (i_wake || ms_v || dm_v);
+`ifndef SYNTHESIS
+    // (WO33) +v35_idbg=FILE: the scan's state on every CPU clock with an event (t counts ce_a
+    // from the reset exit, as v35_trace's): a restart, the raise, the offer, the release, a take
+    integer idbg_fd = 0;
+    string  idbg_fn;
+    reg [31:0] idbg_t = 32'd0;
+    reg        idbg_run = 1'b0;
+    initial if ($value$plusargs("v35_idbg=%s", idbg_fn)) idbg_fd = $fopen(idbg_fn, "w");
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            idbg_t <= 32'd0;
+            idbg_run <= 1'b0;
+        end else if (ce_a) begin
+            if (idbg_fd != 0 && (!idbg_run || rs_sc || ir_h || sl_1 || i_wake || iack
+                                 || (x_disp && igo) || (ie != ie_q) || (ie_r != ie_q)))
+                $fdisplay(idbg_fd, "%0d sc=%0d sl=%0d%0d lq=%02x ie=%0d rs=%0d%0d h=%0d d=%0d v=%0d w=%0d hl=%0d tk=%0d ia=%0d xe=%0d kw=%0d:%0d:%0d",
+                          idbg_t, sc, sl, sl_1, lq, ie, rs_ie, ic_st, ir_h, rq_c, ir_v, i_wake, halted,
+                          x_disp && igo, iack, x_end, kw.v, kw.lvl, kw.idx);
+            idbg_run <= 1'b1;
+            idbg_t <= idbg_t + 32'd1;
+        end
+    end
+`endif
 endmodule
 /* verilator lint_on DECLFILENAME */
 

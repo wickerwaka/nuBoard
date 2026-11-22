@@ -80,7 +80,7 @@ routine rep_p op=F2,F3,64,65 page=rep why="(qprobe round 12, spec 7 A3) the REP 
 routine rep_brk why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q41.3) a broken REP's exit: the acknowledge 48 clocks after the last write's end (the qprobe irep / jrep runs)"
     open call=w24                           ; OPEN: the broken REP's exit (the call and the shared delay's 24)
     open call=w2                            ; OPEN: the broken REP's exit (the call and the shared delay's 2)
-    jmp=intr                                ; the interrupt entry (the acknowledge: INT 3's sequence)
+    jmp=intr_k                              ; the interrupt entry (the acknowledge: INT 3's sequence); (WO39) the take point's (a DMA transfer refetches the string)
 
 ; ---- the single forms (no prefix): the element once. Clocks from the steady instance (the k2
 ; runs' second form, the frozen model exact): its first cycle's post at c7 / c8 / c9 / c10

@@ -6,7 +6,7 @@
  "passed": true,
  "status": 6,
  "timeout": false,
- "total": 1180,
+ "total": 1179,
  "markers": 0,
  "last_marker": 0,
  "writes": [
@@ -2840,6 +2840,11 @@
  "pin_window": [],
  "trace_tail": [
   [
+   1180,
+   1734,
+   129
+  ],
+  [
    1182,
    65516,
    129
@@ -2920,11 +2925,6 @@
    129
   ],
   [
-   1214,
-   65280,
-   129
-  ],
-  [
    1212,
    47760,
    129
@@ -2971,7 +2971,7 @@
   "model_last_event": 0
  },
  "backend": "sim",
- "date": "2026-11-20T23:34:07",
+ "date": "2026-11-21T20:45:23",
  "stim": null,
  "levels": 7711,
  "core": "v35",

@@ -143,7 +143,8 @@ module v35_useq
     // bits): tick A
     output wire        x_disp,          // the dispatch word executes: an instruction boundary
     output wire        x_tki,           // a TKI word executes: a string's take point
-    output wire        x_end,           // an E word executes (the instruction's last word) ...
+    output wire        x_end,           // (WO38) the instruction's look (below): the word releasing
+                                        //   the next opcode, held open to the dispatch ...
     output wire        x_nb,            // ... marking its end no boundary (a prefix, EI, DI, a
                                         //   segment register's load: `nb`)
     output wire        x_nbi,           // ... dropping the interrupt arms (POP PSW, RETI, FINT:
@@ -375,7 +376,26 @@ module v35_useq
     // (step B) the take points and acts (v35_top's glue before: the same terms)
     assign x_disp = ex && pd.disp;
     assign x_tki = ex && pd.tki;
-    assign x_end = ex && word.e;
+    // (WO38) `x_end` is the instruction's look: the clock the controller samples the request
+    // line and NMI (validation/v35s/passage.py third and fourth probes, RESULTS3 Q2 / RESULTS4:
+    // one fixed clock of the instruction's own routine, the end of its execution). It is the
+    // word that releases the next opcode (`ro`: the E word unless the routine releases it
+    // earlier, NOP / XCH AW,r / CVTBW / CMPM / the bit ops' register forms; uasm.py gives every
+    // path one `ro` before or on its E). When the release is the E word and the dispatch word
+    // behind it is held, the look stays open through the held clocks (`lk_o`) while nothing of
+    // the routine's own is on the bus: no request of the EU's outstanding (`rq_busy`: a
+    // store's, PUSH's, an on-chip store's write, with its wait states and the timer grid's)
+    // and the held word posts nothing (OUT's I/O write is posted on its dispatch word). So a
+    // routine whose last act is its E word (INC, MULU, DIVU, a shift, a read, BR) is looked at
+    // up to its dispatch, a store one clock in front of its write's end however long the wait,
+    // NOP / XCH two clocks and CVTBW one in front of the E word. No opcode is named: the marks
+    // are the ROM's `ro` and `e` fields and the bus unit's request slot
+    // (WO39) A dispatch that follows no E word (`redisp`: the DMA routine's end, the
+    // interrupted opcode dispatched again from the queue kept) is looked at on the word in
+    // front of it (the service's last word: `pd_nx.disp` with this word not an E word); every
+    // other dispatch word follows its E word
+    reg        lk_o = 1'b0;
+    // (x_end is assigned below pd_nx, the next word's derived bits)
     assign x_nb = ex && word.e && word.nb;
     assign x_nbi = ex && word.e && word.seg == SG_NBI;
     assign x_flush = ex && word.flush;
@@ -435,6 +455,8 @@ module v35_useq
     end
     assign w_dispm_nx = pd_nx.dispm;
     assign w_disp_nx = pd_nx.disp;
+    assign x_end = (ex && word.ro) || (lk_o && pd.disp && !ex && !rq_busy && !pd.post)
+                   || (ex && !word.e && pd_nx.disp);       // (WO39) the redisp's look (above)
     assign w_erep_nx = pd_nx.erep;
     // (consol) the next word's kind for the bus unit's pace
     // (r24, work order 20 A4, Q111) a bus-idle word that releases a byte (bi, no vk, not FLUSH, rl 1 /
@@ -648,6 +670,7 @@ module v35_useq
             cnt <= 9'd0;
             sp <= 1'b0;
             halted <= 1'b0;
+            lk_o <= 1'b0;
         end else if (ce_a) begin
             upc <= upc_n;
             cnt <= cnt_n;
@@ -657,6 +680,12 @@ module v35_useq
             else if (ex_b && word.seq == SQ_DISP && dc_b)
                 retr <= dr_b;      // (MX1) the dispatch's call of an EA head
             halted <= (halted || (ex_b && word.halt)) && !wake;     // (F3) the release
+            // (WO38) the look held open from an E word that releases the next opcode (not a
+            // no-boundary E: nb) to its dispatch word's execution
+            if (ex_b && word.e)
+                lk_o <= word.ro && !word.nb;
+            else if (ex_b && pd.disp)
+                lk_o <= 1'b0;
         end
     end
 

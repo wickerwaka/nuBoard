@@ -120,6 +120,8 @@ module v35_eu
                                         //   secure mode's translation table)
     output wire        psw_ie,          // (F3) PSW.IE and PSW.BRK (the interrupt take at the dispatch)
     output wire        psw_brk,
+    output wire        psw_ie_r,        // (WO40) PSW.IE as the register holds it (the controller's
+                                        //   scan restart; allowed by the user 2026-11-21)
     input  wire [4:0]  tk_vec,          // (F3) the vector the dispatch took (v35_intc's register)
     input  wire        tk_bs,           // (F3b) ... a bank-switch take (ENCS 1), its level tk_l
     input  wire        tk_int,          // (F3b) ... the INT take (the vector from the bus)
@@ -1111,7 +1113,18 @@ module v35_eu
     assign psw_f = {psw[5], psw[3]};
     assign psw_brki = psw[1];
     assign psw_md = psw[15];
-    assign psw_ie = psw[V35_PSW_IE];
+    // (WO39) IE to the controller: a PSW load from a read's datum (wr=PSW / PSWA from OPR: POP
+    // PSW's and RETI's D words, which execute in the clock the datum is delivered) gives IE from
+    // that clock. Silicon loads IE at the PSW word's read (the datum's sample edge: passage.py
+    // f5_pe_*, the rise against the slots); the core's PSW register is one stage behind that
+    // edge (done_data, then the D word), so the controller reads IE through the bypass the D
+    // word reads its datum by (`oprv`: dnow in the delivery clock). An ALU or immediate write of
+    // IE (EI, DI, the take's clear) is seen from the clock after its word, as before
+    wire        ie_ld = ex_b && (word.wr == RS_PSW || word.wr == RS_PSWA) && word.ws == SR_OPR;
+    assign psw_ie = ie_ld ? oprv[V35_PSW_IE] : psw[V35_PSW_IE];
+    // (WO40) and IE as the PSW register holds it (no bypass): the scan's restart by IE's rise
+    // follows the register's write, the slot's claim the datum (psw_ie)
+    assign psw_ie_r = psw[V35_PSW_IE];
     assign psw_brk = psw[8];
 
     wire unused = &{1'b0, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};

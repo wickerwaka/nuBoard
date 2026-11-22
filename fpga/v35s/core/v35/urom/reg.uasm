@@ -63,7 +63,7 @@ routine flag_di op=FA book="DI" why="(qprobe round 21) the E word bus-idle (`. .
     alu=FLAG wf e nb bi                     ; IE <- 0; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step); (qprobe round 21, spec 17 B, Q98) B N: DI is `. . BN .` (QPr21f di, 66 / 66 in the model): the E word bus-idle
 
 routine flag_ei op=FB book="EI" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 14, spec 10 B) EI is `. . . . . . . . . . . N .` (the qprobe QPr14s sw-ei runs: the fetches in front of the acknowledge; the RTL's was one clock short); the book's 12, eleven clocks with no act (the interrupt controller is not built)"
-    open call=w1                            ; OPEN: two clocks with no act (EI: the book's 12 + 1, measured) (the call and the shared delay's 1)
+    alu=FLAG wf call=w1                     ; (WO35) IE <- 1 on EI's first word (passage.py RESULTS section 4: IE rises in EI's first to third clock; with the slot at the restart + 2 L the slot phases EI meets, lattice.py k1 .. k9, and EI's 49 / 37 / 34 against the slot's 14 to the boundary place it here, WO33's third word two clocks late); OPEN: two clocks with no other act (EI: the book's 12 + 1, measured) (the call and the shared delay's 1)
     bi jmp=ei_z                             ; (r24, work order 20 B, Q115) B: the bus-idle third word (`. . B` + 8 + `N .`); the rest in zz_late.uasm (no entry address moves)
 
 routine lahf op=9F book="MOV AH,PSW" why="one word: the book's 2"

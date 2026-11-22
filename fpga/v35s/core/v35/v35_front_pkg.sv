@@ -83,7 +83,8 @@ package v35_front_pkg;
     // opcode register's instruction short of its lead (ld) or at its lead's end (le), its opcode
     // waits for three bytes behind it (m3: the decode's m3, a ModR/M opcode but FE / F7; qprobe
     // round 8, Q20), HALT released and not yet run (hp), and the
-    // word then releases a staged HALT (hc: the line drops on that word's execution)
+    // word then releases a staged HALT (hc: the line drops on that word's execution; (fix40) no
+    // longer read: the bus unit's stop starts on the clock after it, hp)
     typedef struct packed {
         logic       ld, le, m3, hp, hc;
     } v35_sf_t;
@@ -92,8 +93,12 @@ package v35_front_pkg;
     // G_REL: the phase of the free-running divide-by-six (`gph`, ce_a from reset; one counter in
     // v35_bus, an equal copy in v35_timer) at which a timer register's byte cycle's wait ends
     // (v35_bus tm_hold; README "Work order 31"). v35_timer states its count edges relative to the
-    // same point (README "Work order 32"), so both read the one constant
-    localparam logic [2:0] G_REL = 3'd0;
+    // same point (README "Work order 32"), so both read the one constant. (WO33, the user's
+    // ruling) 3: the chip's from-reset grid constant (phase.py f5_ph_g / g1 / g3: a timer
+    // register's cycle ends at n = 0 mod 6 from the first clock after the release); the preludes
+    // that run no refresh (onchip_t s / t / v's first timer access, f5_ph_g3's first sweep
+    // window) then land on the other grid point, an accepted cost (the refresh is not built)
+    localparam logic [2:0] G_REL = 3'd3;
 
 
 endpackage

@@ -399,19 +399,21 @@ CORE_INSTANCES = {
 # (work order 31) lowered: the on-chip store's hold of E went (the EU's wr_hold / wr_hold_nx into
 # the sequencer): eu out 38 -> 36, useq in 30 -> 28, eu -> useq 14 -> 12; wr_hold_nx leaves the
 # next-value outputs
+# psw_ie_r: allowed by the user 2026-11-21 (eu out 36 -> 37, intc in 14 -> 15, eu -> intc 3 -> 4)
 BUDGET_MODULE = {
     "bus": {"out": 17, "in": 17},
     "queue": {"out": 16, "in": 11},
     "loader": {"out": 28, "in": 36},
     "useq": {"out": 23, "in": 28},
-    "eu": {"out": 36, "in": 38},
+    "eu": {"out": 37, "in": 38},      # psw_ie_r: allowed by the user 2026-11-21
     "regram": {"out": 3, "in": 13},
-    "intc": {"out": 13, "in": 14},
+    "intc": {"out": 13, "in": 15},    # psw_ie_r: allowed by the user 2026-11-21
 }
 BUDGET_PAIR = {
     ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 4, ("bus", "queue"): 4,
     ("bus", "regram"): 5,
-    ("eu", "bus"): 9, ("eu", "intc"): 3, ("eu", "loader"): 2, ("eu", "queue"): 2,
+    ("eu", "bus"): 9, ("eu", "intc"): 4,  # psw_ie_r: allowed by the user 2026-11-21
+    ("eu", "loader"): 2, ("eu", "queue"): 2,
     ("eu", "regram"): 8, ("eu", "useq"): 12, ("bus", "useq"): 1, ("useq", "bus"): 2,
     ("intc", "eu"): 10, ("intc", "useq"): 3,
     ("loader", "bus"): 1, ("loader", "eu"): 14, ("loader", "queue"): 3, ("loader", "useq"): 12,

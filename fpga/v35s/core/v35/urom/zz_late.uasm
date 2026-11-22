@@ -35,7 +35,7 @@ rcm_f: ra=IY wid=WORD alu=STEP ax=RA jmp=rcm_u ; b: SIGMA = IY + the width (rcm_
 ; a compare's take: the next element's read posted before the tests (the overrun) is waited for
 ; and its datum dropped, then the interrupt entry (the element is read again after RETI)
 routine si_cmp why="(F5e) a REP compare's take point: the overrun's datum dropped, then the entry; function only"
-si_f: f jmp=intr                            ; F: the outstanding read's datum (discarded); the interrupt entry
+si_f: f jmp=intr_k                          ; F: the outstanding read's datum (discarded); the interrupt entry (WO39: the take point's)
 
 ; (F5g) D6 /r: CLR1 r/m8 with the bit number in the ModR/M reg field (silicon, validation/v35s/d6.py
 ; f5_d6 / f5_d6b, both sessions): the memory form reads the byte, clears bit reg and always
@@ -95,7 +95,7 @@ adjb_z: bi                              ; B: the bus-idle third word
     open call=w11                       ; OPEN: 12 clocks: book clocks with no act (ADJBA 17) (the call and the shared delay's 11)
     wr=AW wid=WORD ws=SIG e             ; AW <- SIGMA; E
 ei_z: open call=w7                      ; OPEN: eight clocks with no act (the call and the shared delay's 7)
-    alu=FLAG wf e nb                    ; IE <- 1; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
+    e nb                                ; E ((WO35) IE was set on the first word); (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 ; (r25, work order 21 B4, Q121) the single string forms have the REP head's bus-idle word: MOVBK /
 ; CMPBK `. . . B . Y`, CMPM `. . . B . . Y`, INM `. . . . B X` (STM / LDM already `. . B`). The
@@ -134,3 +134,75 @@ r4l_rt: alu=ROL12                           ; (WO23, inferred, not measured) ROL
     e ro                                    ; E: pop the next opcode (N: ten words after the commit word)
 r4r_rt: open call=w1                        ; OPEN: (WO23; qprobe round 12, Q38) ROR4: the second and third words with no act (the call and the shared delay's 1)
     e ro                                    ; E: pop the next opcode (N: fourteen words after the commit word)
+
+; (WO39) the interrupt entry from a string's take point (rep_brk, si_f): intr's words, but a DMA
+; transfer taken here (between a REP string's elements) runs the routine as it was before the queue
+; was kept (dmk: DAR written back after the write, the string refetched from its first prefix:
+; MSPC, FLUSH, E): the take point is no dispatch, the opcode registers hold the string's own
+; opcode and its elements' state, and validation/v35s/pfxtake.py f4q_svc d_str (silicon) keeps the
+; string's segment prefix through that refetch
+routine intr_k why="OPEN: silicon longer than the book (measured, the extra words OPEN): intr's; (WO39) the interrupt entry from a string's take point: intr's words; a DMA transfer resumes the string by its refetch (dmk); function only"
+    d1=TC s1=PC ist alu=IVEC                ; tmpc <- the instruction's start; SIGMA <- 4 x the vector taken (or the kind); the acknowledge
+    d1=TB s1=SIG jc=SGN:bsk_q               ; a bank-switch take, a macro service or a DMA transfer (tmpb <- the kind)
+    d1=ADDR s1=ZERO jnc=SNZ:int_a           ; the INT take: the acknowledge cycles; the address register 0
+    d1=ADDR s1=SIG                          ; the vector's address into the address register (intr's iv_c)
+    open call=w5                            ; OPEN: (qprobe round 12) six words with no act (the call and the shared delay's 5)
+    open jmp=brk_y                          ; OPEN: (qprobe round 12) a word with no act; INT 3's request word
+bsk_q: alu=INC2 ax=SIG wid=WORD            ; SIGMA <- the kind + 2 (0: a DMA transfer)
+    jnc=SNZ:dmk                             ; the DMA transfer (the string refetched)
+    alu=PASS ax=TB wid=WORD jmp=bsw_q       ; SIGMA <- the kind again (tmpb); a macro service or a bank switch: intr's path
+
+routine dmk why="(F4c) DMA at a string's take point: one transfer through the channel block, the string refetched (work order 38's routine); function only"
+; ---- TC first (the last transfer's TC pin is known before its cycle)
+    alu=MSCA wid=WORD                       ; SIGMA <- the channel block's offset (0E00h + 8 x the channel)
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    alu=INC2 ax=SIG wid=WORD                ; + 4
+    alu=INC2 ax=SIG wid=WORD                ; + 6
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post TC's read
+    f alu=MSDC ax=OPR wid=WORD              ; F: SIGMA <- TC - 1; the last transfer latched
+    d1=OPRW s1=SIG bus=MEMW seg=IDB wid=WORD   ; post TC's write-back
+    f alu=MSMD wid=WORD                     ; F: its end; SIGMA <- the kind
+    jc=SGN:dk_d                             ; I/O to memory: the destination side alone
+; ---- the source side (memory to memory, memory to I/O): SAR written back first
+    alu=MSCA wid=WORD                       ; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    alu=INC2 ax=SIG wid=WORD                ; + 4
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post the read of {SARH, DARH}
+    f alu=SFRH ax=OPR wid=WORD              ; F: SIGMA <- SARH's segment
+    d1=TA s1=SIG alu=MSCA wid=WORD          ; tmpa <- it; SIGMA <- the block's offset (SAR)
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post SAR's read
+    f d1=TB s1=OPR alu=DMS ax=OPR ay=ZERO wid=WORD   ; F: tmpb <- SAR; SIGMA <- SAR stepped
+    d1=OPRW s1=SIG bus=MEMW seg=IDB wid=WORD   ; post SAR's write-back
+    f alu=MSDR wid=WORD                     ; F: its end; SIGMA <- {W, 0}
+    jc=SGN:dk_sw                            ; a word
+    d1=ADDR s1=TB bus=MEMR seg=TA wid=BYTE  ; post the source byte's read
+    f d1=OPRW s1=OPR alu=MSMD wid=WORD      ; F: the datum into the write datum; SIGMA <- the kind
+    jc=SNZ:dk_e                             ; memory to I/O: done
+    jmp=dk_d                                ; memory to memory: the destination side
+dk_sw: d1=ADDR s1=TB bus=MEMR seg=TA wid=WORD   ; post the source word's read
+    f d1=OPRW s1=OPR alu=MSMD wid=WORD      ; F: the datum into the write datum; SIGMA <- the kind
+    jc=SNZ:dk_e                             ; memory to I/O: done
+; ---- the destination side (memory to memory, I/O to memory): DAR written back after the write
+dk_d: alu=MSCA wid=WORD                     ; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    alu=INC2 ax=SIG wid=WORD                ; + 4
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post the read of {SARH, DARH}
+    f alu=MSEQ ax=OPR wid=WORD              ; F: SIGMA <- DARH's segment
+    d1=TA s1=SIG alu=MSCA wid=WORD          ; tmpa <- it; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2 (DAR)
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post DAR's read
+    f d1=TB s1=OPR alu=MSDR wid=WORD        ; F: tmpb <- DAR; SIGMA <- {W, 0}
+    jc=SGN:dk_dw                            ; a word
+    d1=ADDR s1=TB bus=MEMW seg=TA wid=BYTE  ; post the destination byte's write
+    f jmp=dk_da                             ; F: its end
+dk_dw: d1=ADDR s1=TB bus=MEMW seg=TA wid=WORD   ; post the destination word's write
+    f                                       ; F: its end
+dk_da: alu=DMS ax=TB ay=ONE wid=WORD        ; SIGMA <- DAR stepped
+    d1=OPRW s1=SIG alu=MSCA wid=WORD        ; the write datum <- it; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    d1=ADDR s1=SIG bus=MEMW seg=IDB wid=WORD   ; post DAR's write-back
+    f                                       ; F: its end
+; ---- the tail: the instruction (or the HALT) again
+dk_e: alu=MSPC ax=TC wid=WORD               ; SIGMA <- the offset to resume at
+    flush                                   ; FLUSH: the stream from it
+    e                                       ; E: the interrupted instruction again

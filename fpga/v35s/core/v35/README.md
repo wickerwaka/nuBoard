@@ -9749,3 +9749,344 @@ store at the edge **after** its landing `ce_a` (1.5 clocks before that fall).
 - Work order 36's numbers above were taken on a tree that also held work order 35 (the interrupt rebuild), which this
   batch does not. Without it, f4_tout's timer-edge to deselect interval at its 44th record is 14368 at ccefdde, not
   14176, so that place was never exact in this batch.
+
+## Work order 33: the scan's restart, the offer slot, the offer's passage, HALT's release, the pin's one delay, the grid constant
+
+Silicon (validation/v35s/lattice.py, programs f5_la_*, two socket captures each; the lattice
+study's RESULTS sections 1 to 5):
+
+- The takes' 16-clock lattice is the level scan's round counted from its last restart. Any rise
+  of IE (EI, POP PSW, RETI) and a store to a request control register restart it; nothing else
+  does.
+- With IE 0 every level holding an unmasked request gets two more clocks (an offer slot): the
+  round is 18, 20, 22, 24 for one to four levels, and HALT is released at such a slot. IE rising
+  in a slot's first clock takes its request at once; in its second it does not restart.
+- The INTP0 pin's request is in the IF bit 3 to 5 clocks behind a count-out's, for the flag
+  read and for the take alike.
+
+Before this work order the scan restarted at EI's IE rise and at request control stores only,
+had no slots (a round was always 16, HALT with IE 0 was released when the IF was set), the raise
+reached the EU through one register on the scan's divided clock, IE rose on EI's E word, and the
+pin's delay was 11 (5 for the flag plus 6 standing in for the scan's misplaced cut-off). No port
+was added, no per-opcode compare, the struct test's budget is unchanged.
+
+### A. The restart (v35_intc)
+
+- **Causes:** `rs_sc = ic_st || (ie_up && sl == 0)`: any rise of IE (`ie_up = ie && !ie_q`; the
+  E word's nb / nbi qualification, `ei_w`, is gone) and the request control store, as before. A
+  rise of IE in a slot does not restart (first clock: the slot raises; second: nothing). A store
+  in a slot restarts (not measured; left as before).
+- **Its clock.** RETI and POP PSW load the PSW at the datum's delivery (POP PSW on its F word,
+  RETI one word later): their IE rise is where silicon's restart is (the take out of HALT 1 mod
+  16 behind the PSW word's read, lattice.py a / c / b "after a PSW pop": silicon d1, now d1 in
+  every window). No PSW load moved. EI was the outlier: its IE rose on the E word, nine clocks
+  later than silicon's (lattice.py k1 .. k9: the sled lengths at which EI meets a slot's first
+  and second clock are nine clocks off with IE on the E word, silicon's with IE on the third
+  word). **EI sets IE on its third word** (urom/reg.uasm flag_ei: `alu=FLAG wf` on the bus-idle
+  word B; the E word keeps nb; zz_late.uasm ei_z): no word added or removed, no bus change.
+
+### B. The levels holding a request
+
+`lq[7:0]` (ce_b, registered): level L has an unmasked vectored request of some group (rq) and
+is above the highest level in service. IE plays no part. Macro service stays out. `lq_lo`: the
+highest such level. `sel`: the first group in the default order at the scan's level, its first
+requesting member, its bank bit (ce_b, registered from registers).
+
+### C. The slot
+
+`sl` (0 none, 1 first clock, 2 second clock). In a level's second clock (`sc[0]`) with
+`lq[sc[3:1]]` the counter holds for two clocks; the round is 16 + 2 a level holding a request.
+The INTP0-2 sampler's divided clock `dv` is now a toggle restarted with the scan (equal to
+`sc[0]` while no slot stands; a slot holds the counter for two clocks, so the toggle keeps the
+two-clock lattice from the restart).
+
+- **The raise:** in a slot's first clock, IE 1 as it stands (a rise in this clock included),
+  the slot's level the highest holding a request (`sl_raise = sl == 1 && ie && sel_v &&
+  sc[3:1] == lq_lo`): the slot's request (`sel`) is raised and held as before.
+- **The reduced form** (RESULTS section 7 C): a lower level's slot passes as with IE 0. The
+  exact form (any slot raises its own level's request: `sl_raise` without the `lq_lo` term) was
+  built and measured: it takes k2 / k4 / k9's lower-level first-clock windows as silicon does
+  and loses intr.py f3_prio (grp_levels: the RTL's RETI raises IE in INTP0's slot, level 5, with
+  DMA0's level 3 pending, and takes INTP0 first; silicon took DMA0, its RETI evidently not in
+  that slot: the RTL's clock over the logging handler is not silicon's). The intr gate decides.
+
+### D / E. The offer's passage and HALT's release
+
+(Superseded by "Work order 35" below: the passage `OFF_DLY` and its shifts `pr` / `pw` are gone.)
+
+- **The passage:** the raise reaches the EU `OFF_DLY` = 8 clocks after the slot (`pr`, a shift
+  of the raise; the offer `ir_v = ir_h && ird`, `ird` set when the raise's stage arrives). It
+  replaces the one register on `dv`, which gave silicon's clock after EI only because IE rose on
+  EI's E word. One value in three series: EI with a request pending (k1 / k3 / k5 49, k6 37:
+  silicon's), the take out of HALT after EI and after a PSW pop (a, c: d2 and d1, silicon's), the
+  mark behind HALT with IE 0 (w1 .. w9: within half a clock of silicon's once the RTL's prefixed
+  store's three clocks are taken out). RESULTS section 4: silicon's vector read is 30 clocks
+  behind the slot, of which the entry routine is 16.
+- **HALT's release with IE 0** is decided in the slot's second clock if the HALT stands then
+  (`pw`, any level; w1 .. w9: the sled length at which the release moves to the next slot is
+  silicon's in every series), and arrives one stage before an offer would. The request stays
+  pending, the round goes on.
+- **HALT's release with IE 1 (item E):** the base registered the release from the offer
+  (`i_wake <= ir_v`), and the stall's release is a clock after it: the E word after HALT ran two
+  clocks after the offer, the dispatch a third (the RTL's take was silicon's d kind, the NOP's
+  address pushed, with a longer path: the first of RESULTS 7 E's readings). Now the release is
+  the raise's stage one before the offer (`pr[OFF_DLY-2]`): the E word executes in the clock the
+  offer reaches the EU and the dispatch takes it as a running boundary's would. Left: when HALT
+  was entered with room for a word in the queue, the fetch that starts at the release holds the
+  dispatch (the boundary's pace) up to three clocks more (periph's takes, below).
+
+### F. The pin
+
+`INTP_DLY` 5. With A to D in, the timer's cut-off is silicon's (f5_la_a: the count-out to the
+take out of HALT 30.0 .. 45.0 on the RTL's pin, silicon 29.5 .. 44.5 on its; the RTL's pin is
+half a clock early), and 5 gives silicon's pin cut-off for the take (f5_la_h7 / h0: the latest
+edge taken 80.4 / 82.4 after mark 1, silicon 80.9 / 82.9) as for the flag read (f5_la_p 14.84 /
+15.34, silicon 14.38 / 14.88): one delay.
+
+### G. The grid constant
+
+`G_REL` 3 (the user's ruling: the chip's from-reset grid constant).
+
+### Measured (simulation against the socket; `+v35_chk` silent in every run)
+
+- **lattice.py:** the take out of HALT after EI d2 (silicon d2; before d4 / d6), after a PSW pop
+  d1 in every window of a, b, c (silicon d1; before d4); the next take follows the handler's
+  RETI (b1 / b2: 2 clocks a step, silicon's; before rigid); EI with a request pending 49 / 37 at
+  levels 7 / 0 (silicon's); EI in a slot's first clock: the first boundary (k1 / k3 / k5 x 15 33,
+  k6 x 1 19 37, k7 x 7 25, k2 x 13 33, k4 x 19, k9 x 21: silicon's phases); w1 .. w9 (IE 0): the
+  release moves to the next slot at silicon's sled lengths in all eight series, the mark behind
+  HALT within half a clock once the RTL's prefixed store (3 clocks longer, the oct study's form)
+  is taken out; the pin's cut-off (h7 / h0) and flag read (p) silicon's but for the RTL's pin
+  half clock. Left: the d / n kinds (RTL d only), the handler's 3 clocks (WO32), the second-clock
+  windows (the RTL a plain round after the missed slot, silicon 2 to 5 clocks later), the
+  reduced form's lower-level windows, the four unexplained windows. `gate` 0 equal as before
+  (every window's length: the prefixed store).
+- **phase.py:** the period-18 phase now exists but one sled step early (x7 s 9 for 10 and so on):
+  x7 39 / 48 (42), x0 21 / 24 (22), px7 26 / 32 (28), pr7 14 / 16 (15), y7, py7, se as before.
+- **intr** 15 of 15 EQUAL (the exact form: 14); f3_lat (ungated) now runs to its end.
+- **periph:** the takes follow the handler's RETI; tm0_os, tm01 inside (were outside); the 600-clock
+  rows stay outside (the post-HALT fetch pace's 0 or 3 clocks; the handler's K 594 for silicon's
+  599); G_REL 3 moves tm0_os128, tm1_i128, tout_os a lattice step outside.
+- **onchip_t** a 215, s 162, k 51, t 519, v 1,153, e 74 and f5_ph_g3 23: G_REL 3's accepted cost
+  (s, t, v, g3 one window each), nothing else moved.
+- wtc 8 / 8 by window, wtc_ps 4 PASS, secure as predicted, banks 5, dma 7, onchip 6, traps 6
+  (traps_undef 101 / 101), prio 4, pfxtake 10, serial 4, f4_hwd EQUAL.
+- **Corpus sample** (F3 F5 F9 F12 F19 F24 F31 F32 F34 F39): RTL-exact 8,313 of 8,502 (unchanged),
+  0 FAIL, per-run rows 0 differ, pin records 0 differ against the base's replay.
+- **Whole corpus:** RTL-exact 30,181 of 30,536 (unchanged), 0 FAIL, per-run rows 0 differ.
+- **qprobe schedule families** (86 files, 13,950 runs): 1,655 exact (1,632 before: 107 gained, 84
+  lost); with `INTP_DLY` 5 the r14n pin families lose 1 to 4 runs each at the sweep's cut-off
+  points (one clock beside silicon's at some lattice points), QPr17f / QPr18f gain 27 / 15.
+
+### Timing (Efinity, T120F484, 17 ns, no exception; work order 32 in brackets)
+
+- Top: seed 1 +3.307 (+3.239), seed 2 +3.806 (+2.718), seed 3 +2.906 (+3.199). 9,482 LUT4
+  (9,404), 2,621 FF (2,606), 36 RAM_5K. No worst path in v35_intc (the worst intc endpoint
+  +4.895).
+
+## Work order 35: the request flip-flop, its fixed delay, the slot at the level's first clock, the round with a level in service
+
+Silicon (validation/v35s/passage.py, programs f5_pa_* and f5_pb_*, two socket captures each;
+the passage study's RESULTS and RESULTS2, section 7 of the second the build spec). This section
+supersedes work order 33's passage (`OFF_DLY`, `pr`, `pw`); its restarts, slots, INTP_DLY and
+G_REL stay. No port was added (test_v35_struct's budget unchanged), no per-opcode compare.
+
+### A. The request flip-flop R and the line (v35_intc)
+
+- **R (`ir_h`, `ir_int`)**: one flip-flop for the maskable sources. Set, only while clear, by a
+  slot's raise with IE 1 (`sl_raise`) or by INT seen high on two consecutive clocks with IE 1
+  (`int_2`: two samples at ce_b of v35_sfr's pin register); the slot first when both come in one
+  clock; with a level-0 request standing when IE rises, INT waits out the rise's clock and the
+  level-0 slot claims R (f3_int's order, the one case not measured). Held when INT drops; cleared
+  by IE 0 and by the take (a slot's request also by its IF, mask or ISPR, as before). Who set it
+  is what is taken (`ir_int` picks INT's acknowledge or the slot's vector); the loser stays
+  pending. The old INT path (`it_v`, `it_sel`, the level-0 exception) is gone.
+- **The line**: a count `rq_c` loaded at R's set, R seen at the EU's sample (`ir_v`) when it
+  reaches 0. `RESP` = 8, **the accepted measured constant** (the user's ruling of 2026-11-20:
+  INT's edge to the boundary, IE's load to the boundary with INT standing, EI's idle words).
+  `ACK` = 5, the controller's measured stage between a slot's claim and the line (a slot with IE
+  to the boundary 14 clocks: its own clock, ACK, RESP; NMI's edge the same 14, INT's 10). The
+  count loaded is RESP (INT) or ACK + RESP (a slot) less 2: the set's own clock and the sample
+  word's.
+- **The EU's sample** ((WO38) superseded: `e_pend` is removed, see "Work order 38"): `ie_e` takes `ir_v` from the E word until the dispatch executes (`e_pend`:
+  a dispatch held for a store's write samples up to its last held clock; periph.py f4_dma dic),
+  in the HALT stall as before, and the dispatch ANDs it with IE: a request DI or POP PSW overtakes is never taken. `ie_arm` (IE at the
+  last start) is gone; `mi_arm` keeps the NBI rule alone (no maskable take at the start behind
+  POP PSW, RETI, FINT: f5_step2; e_reti: RETI's refetch outlasts the line and one X runs).
+- **HALT**: with IE 1 R releases it one stage before the offer reaches the sample; with IE 0 a
+  slot's release (`hw_c`, decided in the slot's second clock) runs the same ACK + RESP; INT with
+  IE 0 releases it as before (f3_int).
+- **NMI**: `NMI_DLY` is now ACK + RESP - 3 (10, the old figure, derived: the catch's clock, the
+  sample word's, `nmi_p`); the pin is sampled at
+  ce_b too, so a pulse of half a clock is caught (f5_pb_w_n).
+
+### B. The slot and the round
+
+- The slot's first clock is the level's first clock (`sl_1`: `sc[0]` 0, the level holding a
+  request), the restart + 2 L; the counter held for the slot's second clock (`sl` 1) and one more
+  (`sl` 2): the round 16 + 2 a level holding a request, as work order 33's.
+- **With level P in service the counter wraps after P's second clock** (`sc_wrap`): the round is
+  2 (P + 1) (f5_pb_f*: 4, 8, 12); FINT clears ISPR and the count runs on upward.
+- EI's IE moved to its **first word** (urom/reg.uasm flag_ei; RESULTS: IE rises in EI's first to
+  third clock). With the slot at the restart + 2 L, work order 33's third word put EI's slot
+  phases (lattice.py k*, passage q_ei*) two clocks early and its ordinary take six late.
+
+### C, D, F
+
+- C (the sample's place by kind): not built; see build/overseer/wo35/rtl.md.
+- D (no fetch into a take): not built: the decision reaches the loader only through a new wire.
+- F: the reduced form stays (see rtl.md).
+
+## Work order 38: the instruction's look, the vector fixed at the set, the cancel, DIC's raise
+
+Built on work order 35 (+ fix35's HALT count and the harness's C8h table load). Sources: the
+third and fourth request-passage probes (validation/v35s/passage.py f5_pc_*, f5_pd_*;
+build/overseer/passage3, passage4 RESULTS). The user's rulings of 2026-11-20: RESP = 8 and ACK
+(the controller's 6 clocks set to set, 5 in the counter) are the accepted measured constants;
+EI raises IE on its first word; `e_pend` is refuted. No port is added; v35_bus, v35_top and
+v35_sfr's port-pin section are untouched.
+
+- **`e_pend` is gone.** The maskable sample (`ie_e`, `mf_e`) and NMI's (`ne`) are taken at the
+  instruction's look only (and in the HALT stall, as before).
+- **The look (`x_end`, v35_useq) is a rule on microcode word kinds, no opcode named.** It is the
+  word that releases the next opcode (`ro`; uasm.py gives every path one `ro`, on its E word
+  unless the routine releases earlier). When that is the E word and the dispatch word behind it
+  is held, the look stays open over the held clocks (`lk_o`, set by an E word with `ro` and not
+  `nb`, cleared when the dispatch executes) while nothing of the routine's own is on the bus:
+  no EU request outstanding (`rq_busy`: a store's, PUSH's, an on-chip store's write with its
+  waits and the timer grid's) and the held word posts nothing (OUT's I/O write is posted on its
+  dispatch word). So: INC, MULU, DIVU, a shift, a read, BR are looked at up to their dispatch
+  (silicon's term 0); a store, PUSH, an on-chip store and OUT one clock in front of their
+  write's end however long its waits (term 1 + w); CVTBW (term 1) and NOP / XCH (term 2) at
+  their first word, which releases the next opcode. v35_intc reads `x_end` as before; the E
+  word's own acts moved off it: `nb_r` loads on `x_nb` too (an early look in front of an E with
+  `nb`: POP sreg, MOV sreg,mem) and `rs_hlt` clears at the dispatch (the look may repeat).
+- **The vector is fixed at the set** (f5_pc_h70 / h07 / h73): with IE standing, any level's
+  slot claims R while R is clear (the exact form; work order 33's reduced form let a better
+  level's standing flag suppress a worse level's slot and the take moved a round later). A
+  rise of IE in a slot's first clock claims it only for the highest level holding a request;
+  otherwise the rise restarts the scan as anywhere else (`sl_ie`). That second half is **not
+  measured** as such: it keeps intr.py f3_prio grp_levels (RETI's rise in level 6's slot with
+  level 3 pending: silicon takes level 3; the RTL's RETI clock there is not silicon's).
+- **Cancellable up to the take** (f5_pc_m_*): a slot's R is dropped by any store to a request
+  control register (`ic_st`; the store also restarts the scan, so a request still standing is
+  found again with its whole count), no slot sets R on that clock, and the dispatch takes only
+  while R still stands (`g_i` with `ir_h`). Silicon drops a request withdrawn after the look
+  with 10 dead clocks at the entry; the core takes nothing (not built). INT's R is not dropped
+  by a store (not measured).
+- **DIC's request** is raised at the last transfer's cycle start (`dl_go`: the bus unit's DMA
+  window `dk` rising with the EU's `dm_last`), through v35_dma's existing `rs` input, not when
+  the CPU resumes (f5_pd_dl0 / d_*: an NMI-like edge half a clock before the last write strobe).
+  The core's DMA routine is 21 to 24 clocks longer than silicon's behind that write (the DAR
+  write-back cycle after the transfer and the FLUSH / refetch of the interrupted instruction),
+  so the request now reaches the instruction behind the burst in more scan phases than
+  silicon's: f4_dma's dic takes one store early (see build/overseer/wo38/rtl.md).
+
+## Work order 39: no `sl_ie`, IE at the PSW word's read, the DMA queue kept
+
+Built on work orders 35 + 38 (+ fix35's HALT count) over b214ad3's landing. Sources: the fifth
+request-passage probe (validation/v35s/passage.py f5_pe_*; build/overseer/passage5 RESULTS) and
+the fourth (f5_pd_*). No port is added; v35_bus, v35_top and v35_sfr's port-pin section are
+untouched. Record: build/overseer/wo39/rtl.md.
+
+- **`sl_ie` is gone** (v35_sfr.sv, v35_intc): IE rising in a slot's first clock claims that slot's
+  request whatever better level is pending (`sl_raise = sl_1 && ie && sel_v`; the rise restarts the
+  scan only outside a slot's first and second clocks). `lq_lo` went with it.
+- **IE at the PSW word's read** (v35_eu.sv, urom/xfer.uasm): the controller's IE (`psw_ie`) is the
+  datum's bit in the clock a D word loads the PSW from a read (wr=PSW / PSWA with ws=OPR: POP PSW's
+  and RETI's), through the bypass that word reads its datum by (`oprv`); silicon loads IE at the
+  read's sample edge, the core's PSW register is a stage behind it. RETI's PSW (all 16 bits) now
+  loads on its D word, as POP PSW's does, SP's write-back moved to the word in front of the read's
+  post (still the old bank's), and the word the load stood on is an OPEN word (the length kept).
+  The rise against the slots (f5_pe_*, the sled at which the better level's first clock is met):
+  EI 13 / POP PSW 9 / RETI 6, silicon's (before: 13 / 8 / 4).
+- **FINT's round (not enabled, `FINT_RUN`):** with the count's step not wrapping on FINT's own clock
+  every slot phase of f5_pe_h3 / h4 is silicon's (the core's slots are 2 clocks farther from FINT
+  without it, at the parity FINT meets the wrap in), but f3_prio grp_levels then reads TU0 where
+  silicon read DIC0 (its handler's RETI 191 clocks behind FINT lands in level 6's first clock; that
+  tail is not measured). A ruling is wanted.
+- **The DMA tail** (urom/xfer_dma.uasm, v35_loader.sv, uasm.py): DAR is written back in front of
+  the destination's write (as SAR in front of the source's read; the datum carried in tmpc, OPRW
+  not being a source), and the routine ends by dispatching again the opcode the take's dispatch
+  popped (`redisp`: a DISP word not behind an E word; the loader's opcode / ModR/M registers, its
+  staging slot and the queue untouched, no FLUSH). A take that followed a HALT still refetches the
+  HALT (MSPC). The loader's `mpm` (the popped ModR/M byte still to release) clears at the dispatch
+  that arms its release, so the second dispatch releases nothing again. The look for that
+  dispatch (`x_end`, v35_useq) is the service's last word: a word that is not an E word with a
+  dispatch word next (`pd_nx.disp`); without it NMI and a request standing through the burst
+  were sampled only before it (prio.py f4p_hb / f4p_hr DIFFERed: NMI an instruction late).
+  A transfer taken at a REP string's take point (no dispatch: rep_brk, si_f) enters `intr_k`
+  (intr's words) and runs `dmk`, work order 38's routine with its refetch of the string from the
+  first prefix: kept-queue redispatch there lost the string's segment prefix in pfxtake.py
+  f4q_svc d_str. Silicon against the core
+  (last DMA write's end to the next store's write): 16 / 22 at 0 / 2 waits, now 17 / 20 (37 / 46
+  before); the first fetch behind the burst 7 / 7, now 5 / 5. f4_dma EQUAL again without `e_pend`.
+- Not built: D (DIVU / MULU / ROL CL a clock long in the passage frames: the clock is the dispatch
+  hold behind a fetch started on the E word, a front-end pace rule, not the routines) and E (OUT's
+  I/O write on its dispatch word): see the record.
+
+## Work order 40: `psw_ie_r`, FINT at silicon's length, `FINT_RUN` gone
+
+Built on work order 39. Sources: the fifth and sixth request-passage probes (passage.py f5_pe_*,
+f5_pf_*; build/overseer/passage5, passage6 RESULTS). One port added, allowed by the user
+2026-11-21: `psw_ie_r` (v35_eu -> v35_intc, PSW.IE as the register holds it). Record:
+build/overseer/wo40/rtl.md.
+
+- **The scan's restart from the PSW register** (v35_sfr.sv, v35_intc): `ie_q` / `ie_up` read
+  `ie_r` (`psw_ie_r`); the slot's claim (`sl_raise`) keeps `ie` (the datum's IE at the PSW word's
+  read, work order 39). Where the rise falls is decided at the datum's rise (`d_up`): a POP PSW /
+  RETI rise outside a slot's first two clocks leaves `rs_k`, and the register's write a clock
+  later restarts the scan whatever it then stands at, with no claim in that clock (`sl_set`
+  is `sl_raise && !rs_sc`); EI's rise is the register's own. Without `rs_k` a rise in the clock
+  in front of a slot's first clock claimed that slot too (two windows where silicon has one).
+  The take's enables (`g_i`, `g_it`) read `ie_r`: at a DISP or TKI word the datum's bypass and
+  the register agree (an E word stands between a PSW load's D word and the dispatch), so the
+  take is unchanged and the bus datum leaves the take's tick-B path.
+- **FINT is 6 clocks** (urom/trap.uasm): the ISPR read with its priority encode (the controller's
+  clear, `alu=FINT`, on the routine's first word), two write-back clocks with no act in the core,
+  E with NBI. Silicon's 5 with nothing in service (the write-back skipped) is not built: the
+  sequencer has no condition for "a level in service" (it would need a wire from v35_intc).
+- **`FINT_RUN` is gone**: one behaviour, the wrap by the in-service level on every clock. Of the
+  four clear placements in FINT's routine words, only the first keeps intr.py f3_prio grp_levels;
+  every placement leaves the slot map behind FINT one clock off silicon's (the scan's two-clock
+  grid against an odd offset): see the record.
+- Measured (simulation against the socket): f5_pf_x FINT 21 / 29 / 37 clocks to RET's read
+  (silicon's; FINT ; FINT 27 for 26), the RETI's PSW word 142 behind RET's read (silicon's);
+  q_reti7 boundary and clock 3 -> 37 of 40; intr 15 / 15, dma 7 / 7. **Not regained:** periph
+  f4_tb (TB0 periods 1027 / 1030 / 1014 ... for silicon's 1031 / 1015). **Lost:** periph f4_tm's
+  writes (563 / 568: one TM take more before the test's end), from the restart's move. The slot
+  map behind FINT is one clock early in f5_pe_h4, f5_pf_a and f5_pf_c with every placement of the
+  clear. 17 ns: +2.946 / +2.756 / +3.038.
+
+## Work order 41: FINT as two steps, FINT's clear a register behind its first word
+
+Built on work order 40 and the HALT-stop fix (build/overseer/fix40). Sources: the eighth and tenth
+request-passage probes (passage.py f5_pi_*, f5_pk_*; build/overseer/passage8, passage9 RESULTS).
+No port added, no integer. Record: build/overseer/wo41/rtl.md.
+
+- **FINT is two steps of one shape** (urom/trap.uasm `fint`): each step is a word and a word held
+  while a fetch cycle that started on the first word's clock runs (two clocks with no such fetch,
+  else to that cycle's end). Step 1: the first word (FINT's second byte released there: the
+  loader's page-byte release on the routine's first word; the clear), then the V word's wait
+  (`rl=x bi alt`: held while a fetch runs, not on its last clock). Step 2: E (the next opcode
+  released, so a fetch the release starts from an idle bus starts on step 2's first clock) and the
+  dispatch word with the boundary's wait. From FINT's first word to the next instruction's: 4
+  with no fetch on either step's first clock, 2 + c, c + 2, 2c with c = 3 + the code block's
+  waits (silicon's four rows, 520 of 520 windows). Work order 40's six-clock routine is gone; no
+  ISPR term, no constant a wait state, no bus hold, RET / RETI unchanged.
+- **FINT's clear reaches ISPR a register behind the word** (v35_sfr.sv, v35_intc `fint_q`): the read
+  and its priority encode on FINT's first word, the write-back on the next clock; the scan sees
+  the level cleared there (silicon: X = R - 12 in the eighth probe's frames, FINT's first word on
+  R - 11) and the round in progress runs on to level 7.
+- Measured (simulation against the socket): every f5_pk FINT window's first stack read and every
+  bus record equal (s, n, f, l, p, pf, READY 3 / 4 waits: 496 + 64 windows); the stub's FINT less
+  its control equal (its controls carry the MOV byte m,imm8 excess); f5_pf_x 21 / 29 / 37, FINT ;
+  FINT 26, 142 (all 14 rows); periph f4_tb EQUAL (1031 / 1015), f4_tm writes 563 / 563, tm0_i6
+  599 599 599 615 599.
+- **Not built (needs a ruling):** the scan's phase with a level in service. Silicon's level-0
+  clock is on V0 - 8 + 2 (P + 1) j (T units) for every P; in the core that is a restart of the
+  count 9 clocks behind the acknowledge's IVEC word (sc 0 on V0 - 5), where no event of the core's
+  take sequence falls (the entry's shared delay). A diagnostic restart there, with the clear's
+  register, puts all 58 comparable rows of the eighth set and f5_pe_h4 / f5_pf_a / f5_pf_c on
+  silicon. Without it the slot map behind FINT stays one clock off (f5_pe_h4 early, f5_pf_a / c
+  late), the in-service rounds on the take's old phase.

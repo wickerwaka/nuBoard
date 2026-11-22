@@ -688,7 +688,9 @@ module v35_loader
     reg  [1:0] rdm = 2'd0;              // mcnt_f(modrm), loaded with modrm
     reg  [2:0] rp = 3'd0;               // {2'd0, ro} + {2'd0, mra} + {1'b0, rdc}
     assign rls = !ex ? 3'd0 : rp + ((rl == RL_X) ? 3'd0 : {1'd0, rl});
-    wire       mpm_nx = epop_b ? (mpop_b && !e2_b) : mpm;
+    // (WO39) cleared at the dispatch that arms its release (mra): a second dispatch of the same
+    // opcode (urom/xfer_dma.uasm `redisp`, the DMA routine's end) releases nothing again
+    wire       mpm_nx = epop_b ? (mpop_b && !e2_b) : disp_b ? 1'b0 : mpm;
     wire       mra_nx = flush_b ? 1'b0 : disp_b ? mpm : ex_lb ? 1'b0 : mra;
     // (r24, model_m LEAD_*: the lead counts from the clock the opcode leaves the queue, the
     // model's N) `ew`: the E word waited on this clock for the staging slot alone (empty, not
@@ -977,7 +979,7 @@ module v35_loader
         end else if (ce_a) begin
             d_ref <= flush_b ? 3'd0 : disp_b ? {2'd0, mpp} : d_ref + pops_rb - rls_b;
             oadj_ref <= flush_b ? 4'd0 : disp_b ? {3'd0, s_v_nx} + {3'd0, mpp} : oadj_run;
-            mpp <= epop_b ? mpop_b : mpp;
+            mpp <= epop_b ? mpop_b : disp_b ? 1'b0 : mpp;     // (WO39) as mpm
         end
     end
     integer rsync_n = 0;

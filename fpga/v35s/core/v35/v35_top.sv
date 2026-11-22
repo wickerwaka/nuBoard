@@ -316,6 +316,7 @@ module v35_top
     wire [15:0] q_tq;                   // (work order 29) the queue's table reading of its head bytes
     wire        psw_brki, poll_p14;     // (F2b) PSW.BRKI; the P14 pin as POLL reads it
     wire        psw_ie, psw_brk;        // (F3) PSW.IE, PSW.BRK
+    wire        psw_ie_r;               // (WO40) PSW.IE, the register (the scan's restart)
     wire [4:0]  tk_vec;
     wire        igo;                    // (F3) an interrupt taken at the dispatch (v35_intc)
     wire        sgo;                    // (F5e) an interrupt taken at a string's take point
@@ -429,7 +430,7 @@ module v35_top
         .ra_early, .rb_early, .ex_b,
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
         .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki, .psw_md,
-        .psw_ie, .psw_brk, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns_pin(input_levels[0]), .req_ia,
+        .psw_ie, .psw_brk, .psw_ie_r, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns_pin(input_levels[0]), .req_ia,
         .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_hlt, .ms_end,
         .tk_dm, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd, .dm_tend, .dm_tlast, .dm_last, .req_dk,
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
@@ -452,7 +453,7 @@ module v35_top
         .wr(sfr_wr), .ic_we, .ic_wd,
         .x_disp, .x_tki, .x_end, .x_nb, .x_nbi, .halted, .w_stop, .x_stop,
         .iack(x_ivec), .fint(x_fint),
-        .int_on, .ie(psw_ie), .brk(psw_brk), .pf_set, .ms_b, .ms_end, .dm_go, .dm_v, .dm_ch,
+        .int_on, .ie(psw_ie), .ie_r(psw_ie_r), .brk(psw_brk), .pf_set, .ms_b, .ms_end, .dm_go, .dm_v, .dm_ch,
         .igo, .sgo, .wake(h_wake), .take_d, .dm_rs, .dm_smp, .tk_dm, .ms_hlt,
         .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_clr, .tk_bs, .tk_lv, .tk_int,
         .ic_if, .ispr, .tk_vec

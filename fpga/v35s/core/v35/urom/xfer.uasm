@@ -582,11 +582,11 @@ routine reti op=CF book="RETI" diff=1 why="OPEN: silicon longer than the book (m
     f d1=TC s1=OPR                          ; D: F: the segment into tmpc
     rb=SP wid=WORD d1=ADDR s1=RB            ; the PSW's address
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
+    wr=SP wid=WORD ws=SIG                   ; (WO39) SP <- SP + 2 in the old bank (F1: silicon's bank 7 SP, f1_psw), before the PSW's load; was on D
     open                                    ; OPEN: (qprobe round 13, Q44) U's word
     bus=MEMR seg=SS wid=WORD                ; U: post the PSW's read
-    f wr=SP wid=WORD ws=SIG d1=TB s1=OPR    ; D: F: the PSW into tmpb; SP <- SP + 2 in the old bank (F1: silicon's bank 7 SP, f1_psw)
-    wr=PSWA ws=TB                           ; the PSW <- tmpb, all 16 bits: RB and MD restored (F1; the bank switches)
+    f wr=PSWA ws=OPR                        ; D: F: (WO39) the PSW <- the datum, all 16 bits: RB and MD restored (F1; the bank switches), IE at the PSW word's read as POP PSW's (silicon: passage.py f5_pe_reti*, the rise 2 clocks earlier than on a word of its own)
+    open                                    ; OPEN: (WO39) the word the PSW load stood on (tmpb into the PSW): the routine's length kept
     wr=PS wid=WORD ws=TC alu=PASS ax=TA     ; PS <- the segment in the new bank (F1: f1_psw); the offset into SIGMA
     rb=DS0 wr=DS0 wid=WORD ws=RB            ; (F1) DS0's flop from the new bank's slot
     rb=SS wr=SS wid=WORD ws=RB              ; (F1) SS's

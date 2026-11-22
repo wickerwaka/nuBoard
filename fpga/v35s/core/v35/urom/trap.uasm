@@ -191,9 +191,20 @@ dve: trap d1=TC s1=PC d2=TB s2=VEC vec=DIV   ; the divide error raised (the func
     jmp=fpo_c                               ; the push of the PSW (CITF) and the common entry
 
 ; ---- (F3) FINT (0F 92): the highest-priority level in service cleared in ISPR (f3_prio: FINT
-; with 24h in service leaves 20h, then 00h; with none, nothing)
-routine fint op=92 page=0f book="FINT" why="(F3) FINT: the controller's ISPR (f3_prio); function only"
-    alu=FINT e seg=NBI                      ; ISPR: the highest-priority level cleared; E; (F5c) NBI: no maskable interrupt or single step at the next start (f5_step)
+; with 24h in service leaves 20h, then 00h; with none, nothing). (WO41) Silicon's FINT is two
+; steps of one shape (passage9, f5_pk_*: 520 of 520 windows, 0 to 4 waits, the level in service
+; not entering): each step is a word and a word held while a fetch cycle that started on the
+; first word's clock runs (two clocks with no such fetch, else to that cycle's end). Step 1 runs
+; from FINT's first word; FINT's second byte is released on that word (the loader's page-byte
+; release on the routine's first word) and the next opcode not before step 2's E word, so a fetch
+; the release starts from an idle bus starts on step 2's first clock. Step 2 is the E word and the
+; dispatch word (the boundary's wait). The step-1 hold is the V word's wait (a fetch running then,
+; not on its last clock), the same wait the dispatch word has for a fetch. No ISPR term, no
+; constant a wait, no bus hold. Replaces work order 40's six-clock routine.
+routine fint op=92 page=0f book="FINT" diff=2 why="(F3) FINT: the controller's ISPR (f3_prio); (WO41) silicon longer than the book (measured: silicon's two steps (passage9 RESULTS, the rule: each a word and a word held while a fetch started on the first word's clock runs; 4 clocks with no fetch, the book 2): step 1 the clear and V's wait, step 2 E and the dispatch)"
+    alu=FINT                                ; (WO41) step 1, first word: FINT's second byte released (the page byte's release on the routine's first word); the controller clears the highest-priority level in service
+    rl=x bi alt                             ; (WO41) step 1, second word: held while a fetch that started on the first word's clock runs, not on its last clock (V's wait); no byte released
+    e ro seg=NBI                            ; (WO41) step 2: E (the next opcode released: a fetch it starts from an idle bus starts now); the dispatch word follows with the boundary's wait; (F5c) NBI: no maskable interrupt or single step at the next start (f5_step)
 
 ; ---- (F3) 0F 9A: vector 1 with the next instruction's offset pushed (F2b's undefined series;
 ; f3_trap op_0f9a: the PSW pushed as it stands, IE and BRK cleared)

@@ -47,7 +47,8 @@ The word's fields (one line of a routine is one word, one CPU clock):
     seq         jmp=L  jc=COND:L  jnc=COND:L  call=L  ret  loop=L  ((qprobe round 17) dispm
                 withdrawn)  (the word after E is
                 the dispatch, DISP, set by the assembler); (F5e) tki=L a REP string's take point:
-                L when an interrupt is taken there, else the next word (the book check: the next)
+                L when an interrupt is taken there, else the next word (the book check: the next);
+                (WO39) redisp: a DISP word elsewhere (the popped opcode dispatched again)
     pfx flush halt trap
     ro rl=K bi  (qprobe rules 3 and 5) the releases: ro the next opcode released from the
                 queue's occupancy (the model's N), rl=K operand bytes released (its P); bi the
@@ -463,6 +464,13 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 # (qprobe round 17) withdrawn: the sequencer has no DISPM source (no routine used
                 # it; the second level's entry on the ROM address was the core's worst path)
                 raise UasmError(f"{path}:{ln}: dispm is withdrawn (the sequencer has no DISPM source)")
+            elif k == "redisp":
+                # (WO39) the dispatch word outside the word after E: the opcode the last E word
+                # popped dispatched again, the queue as it stands (the DMA routine's end: the
+                # interrupted instruction runs from the queue kept across the service)
+                if "seq" in fields:
+                    raise UasmError(f"{path}:{ln}: redisp is a sequencing value (no other seq)")
+                fields["seq"] = enum_value("v35_seq_e", "disp")
             elif k == "trap":
                 # (qprobe round 12) the divide error raised: the sequencing's TRAP (the next word;
                 # the word's own bit freed for the ROM's twelfth address bit)

@@ -647,7 +647,7 @@ module v35_bus
     // (r24, model_m CH_BNEXT, results Q42's second half) `wkbn`: the word now has no bus-wait kind
     // and is followed by a bus-idle word (the sequencer's free code flush with alt, no bi)
     reg         wkbn = 1'b0;
-    reg         aft = 1'b0, rqx = 1'b0, b4r = 1'b0, rqvr = 1'b0, ler = 1'b0, hpr = 1'b0, hcr = 1'b0;
+    reg         aft = 1'b0, rqx = 1'b0, b4r = 1'b0, rqvr = 1'b0, ler = 1'b0, hpr = 1'b0;
     reg         dst = 1'b0;                 // (qprobe round 13) the dispatch word waited on the last clock
     wire        xd = ex && wkd;                 // the dispatch word executes now (the boundary)
     wire        xf = ex && wkf;                // a FLUSH word executes now
@@ -664,7 +664,14 @@ module v35_bus
     // `fx` beside fe: also the fetch that started back to back behind a memory write with
     // nothing pending under it (Q130: MOV [d16],imm16 ; NOP, the NOP's boundary on t + 6)
     wire        gw = xd && ((pend && eu_dlv) || (b4r && !rqvr && ler) || ((fe || fx) && dlv_fetch && !dst));
-    wire        fstop = hpr || (ex && hcr);
+    // (fix40) HALT's stop from the clock after the word that pops HALT's opcode (`hpr`), not on that
+    // word's own clock: a fetch the line raises there still starts (Q14: nothing is fetched after
+    // the pop). Silicon, periph f4_tm's socket trace: behind RETI five refetches at PSW + 19 .. 39
+    // whatever the return address's parity, the fifth on the clock the core pops the sled's HALT
+    // when the return address is even; the core's pop-clock term cancelled it, the release then
+    // started it and the take out of HALT waited 3 clocks for it (f4_tb / f4_tm / f4_tout periods)
+    wire        fstop = hpr;
+    wire        unused_hc = sf_nx.hc;      // (fix40) the pop clock's term, no longer read here
     // (r24, work order 20 A3, Q112, model_m REQ_PRI=5) behind a memory request word Y executed on a
     // fetch's last clock (`ry1`, on that fetch's delivery) no back-to-back fetch starts at all,
     // four or fewer held too, unless the word now releases a byte (a queue read is a new fetch
@@ -816,7 +823,6 @@ module v35_bus
             rqvr <= 1'b0;
             ler <= 1'b0;
             hpr <= 1'b0;
-            hcr <= 1'b0;
         end else if (ce_a) begin
             aft <= aft_n;
             rqx <= ex && wkr;
@@ -830,7 +836,6 @@ module v35_bus
             rqvr <= eu_rq_nx;
             ler <= sle;
             hpr <= sf_nx.hp;
-            hcr <= sf_nx.hc;
         end
     end
     always @(posedge clock) begin

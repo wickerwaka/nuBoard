@@ -4105,3 +4105,45 @@ programs `f5_pg_a` .. `d`, 100 windows, two sessions EQUAL):** measurement only.
     period in the 16-clock window, hence 1031 / 1015. After RETI silicon makes five refetches
     whatever the return address's parity; the core dropped the fifth at an even return
     address (the HALT stop cancelling a fetch on the clock HALT's opcode is popped).
+
+**2026-11-22, landing of the interrupt request rebuild (work orders 35, 38, 39, 40, 41 and the
+HALT-stop fix):**
+  - **Request passage** (`v35_sfr.sv`, v35_intc): one request flip-flop R shared first come
+    by INT (two samples high) and the scan's slots, gated by IE at both ends, cleared by IE 0
+    and by the take; its delay is a count with the two accepted measured constants (user's
+    rulings of 2026-11-20): RESP = 8 clocks from R's set to the look, and the controller's 6
+    clocks set to set for slot and NMI requests (ACK = 5 in the count's bookkeeping). The
+    vector is fixed at the set; any store to a request control register drops a slot's R and
+    the request is found again with its full count. INT's first acknowledge is 15 clocks
+    after the edge (9 before); the 14-clock hold requirement and the phantom vector read at
+    0006xh are gone. DIC's request is raised in the last transfer.
+  - **The look** (`v35_useq.sv`): the word that releases the next opcode, held open over a
+    held dispatch word; INT's cut-off is silicon's for all 18 measured kinds. EI raises IE
+    on its first word. RETI loads the PSW on its D word; the slot claim reads IE from the
+    datum, the scan's restart from the register (port `psw_ie_r`, v35_eu to v35_intc, allowed
+    by the user 2026-11-21). IE rising in a slot's first clock takes that slot's request.
+  - **Scan:** restarts at IE rises and request control stores, offer slots with IE 0, round
+    2(P+1) with level P in service running on at FINT's clear (registered one clock behind
+    FINT's first word). HALT's release count is loaded only while it is 0.
+  - **FINT** is two steps, the second a word held while a fetch runs: exact in 460 of 460
+    probe windows, f5_pf_x, the timer stub (RETI's read 126) and refresh-off f3_prio.
+  - **DMA service** keeps the queue: DAR written back before the destination write, the
+    routine ends with a re-dispatch of the popped opcode; last write end to the next store's
+    write 17 / 20 clocks at 0 / 2 waits (silicon 16 / 22; 37 / 46 before).
+  - **HALT stop** (`v35_bus.sv`) starts the clock after HALT's opcode is popped, so the fifth
+    refetch behind RETI is made at an even return address as on silicon.
+  - **Gate (land41 against land37):** corpus at both spacings RTL-exact 30,181 of 30,536,
+    lost 0, gained 0, 0 pin records differ; intr 15, dma 7, periph 2 equal 2 differ (f4_tb
+    1031 / 1015 as silicon), every other program and fuzz set as the baseline; secure bench
+    as predicted. Passage probes: boundary-and-clock equal 4,214 of 11,289 windows. Three
+    seeds at 17 ns +2.195 / +3.256 / +3.037 (worst path useq xtab to eu x_b, not of this
+    work); 9,663 LUT4, 2,666 FF, 36 RAM_5K.
+  - **Costs accepted by the user:** onchip_t 1 equal 5 differ becomes 0 equal 6 differ (the
+    timer grid constant G_REL 3); the worst timing seed at +2.195.
+  - **Not built:** the in-service count's phase against the take (silicon: level-0 clock 8
+    clocks before the vector read; in the core only a restart 9 clocks after the acknowledge
+    reproduces it, so the slot map behind FINT is one clock off; a probe for the event is
+    running); the two-clock on-chip cycle in the controller's 6 clocks; the dropped entry's
+    10 dead clocks; no fetch into a taking boundary (needs a port); NMI's unexplained rows;
+    f4_tout's tout_os (823 against 855); the take lattice gate is still 0 of 27 (the core's
+    prefixed and immediate stores run long).

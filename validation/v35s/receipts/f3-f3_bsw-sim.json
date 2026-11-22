@@ -6,7 +6,7 @@
  "passed": true,
  "status": 6,
  "timeout": false,
- "total": 4542,
+ "total": 4538,
  "markers": 0,
  "last_marker": 0,
  "writes": [
@@ -12647,7 +12647,7 @@
   "model_last_event": 0
  },
  "backend": "sim",
- "date": "2026-11-20T23:34:06",
+ "date": "2026-11-21T20:45:21",
  "stim": null,
  "levels": 7711,
  "core": "v35",
