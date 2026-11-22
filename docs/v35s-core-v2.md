@@ -4168,3 +4168,24 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   leaves the count 3 clocks behind the handler's EI lattice (5 in six HALT-frame rows); the
   bank entry's one clock. Not run: refresh / DMA / HOLD displacing the vector read, NMI or
   BRK under waits, BRKV, macro service.
+- **2026-11-22, direct-address MOV (work order 42, landed).** `MOV dmem,acc` and
+  `MOV acc,dmem` post their request on the address word, so the data cycle starts on S+5
+  when no fetch occupies it; `MOV byte [d16],imm8` has its own routine (`st_imm8_dir`) in
+  the ModR/M direct store's shape. The store needed one bus-unit rule the probe had not
+  predicted: a request posted inside a fetch chain does not stop the chain's next fetch
+  (`lcb` in v35_bus.sv; registers only, no port, no integer). User rulings: land it; `lcb`
+  accepted as the mechanism; `MOV word [d16],imm16` is to be probed on the socket, then
+  built. Gate (land42 against land41): corpus 30,181 of 30,536 at both spacings, lost 0,
+  gained 0; every program set and fuzz line as before except periph 3 equal 1 differ
+  (f4_tout now EQUAL, tout_os and tm0_os gone from the lists) and onchip_t 1 equal 5
+  differ (f4_oc_a EQUAL; windows differing in length: oc_e 34 to 2, oc_s 25 to 1, oc_t 21
+  to 1, oc_k 4 and oc_v 1 unchanged). Probe set f5_pj: 408 of 408 windows. Timing at
+  17 ns: +2.994 / +2.509 / +3.063 over three seeds; 9,691 LUT4, 2,659 FF, 36 RAM_5K.
+  Pin records: all 30,536 runs move, in the prelude only (the scored window is
+  unchanged), around the store to PRC at 10010h. Against silicon the gaps 10016h to
+  10018h and 10018h to 1001Ah are now equal at every wait setting (before: the first only
+  at wait 0, the second never). The gap 10014h to 10016h is 3 slow clocks (96 ticks) long
+  at every wait setting; before it was equal at wait settings 1 and 2 (20,128 runs) and 96
+  long at wait 0. The prelude's total error falls from 192 to 224 ticks to 96. Silicon
+  still has refresh on in that part of the prelude and the simulation does not model it;
+  the remaining 3 clocks are not explained.

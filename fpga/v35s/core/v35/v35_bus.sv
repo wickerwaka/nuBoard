@@ -700,8 +700,16 @@ module v35_bus
     // a bus-idle word (`wkbn`: the word would have to wait the whole fetch); the bus is idle this
     // clock and the fetch is wanted again from the next (no give-way: the slot is not kept).
     // Registers but the release (lv_q.nrl, as a1p's)
+    // (WO42, the pace2 set f5_pj: LCHW / LCR stated whole) not while a request of the chain's
+    // own stands or is being posted (`lcb`: its request word executed inside the chain, ych, five
+    // or fewer held, c5r; not an unarmed write, Q33's): that request gives way to the chain's
+    // next fetch (lcw / lcr) and the bus-idle word behind it waits for the request's cycle
+    // whatever the fetch does, so the hold buys nothing; silicon chains the fetch (MOV [d16],acc
+    // behind PUSH, its write posted on the address word, the fetch's delivery clock: the fetch
+    // first at 1 and 2 waits). Registers only
+    wire        lcb = lc && ych && c5r && !un_w && !wur;
 `ifndef SYNTHESIS
-    wire        bnx = dlv_fetch && few && ex && wkbn && lv_q.nrl;     // (timing repair 1: in fr's arms, bnx1)
+    wire        bnx = dlv_fetch && few && ex && wkbn && !lcb && lv_q.nrl;     // (timing repair 1: in fr's arms, bnx1)
 `endif
     // (timing repair 1) the line as the grant reads it, Shannon's expansion on the queue's three
     // late facts: the request line, the five-held continuation (lv_q.r5) and the release (nrl);
@@ -711,7 +719,7 @@ module v35_bus
     wire        a1g1 = pend && eu_dlv && lo && ((A1_C1 && (ry1 || (ex && wkm && !wkr)))
                        || (A1_C2 && pl1 && ex && wkp && !req_v && !rsv && !rqo));
     wire        a1g0 = pend && eu_dlv && lo && A1_C1 && (ry1 || (ex && wkm && !wkr));
-    wire        bnx1 = dlv_fetch && few && ex && wkbn;
+    wire        bnx1 = dlv_fetch && few && ex && wkbn && !lcb;
     (* syn_keep = "true" *) wire f1_1 = !rq1 && g_c && !a1g1 && !bnx1;            // nrl 1: fetch_req's arm
     (* syn_keep = "true" *) wire f2_1 = !rq1 && !xd && !rqx && g_c && !a1g1 && !bnx1;     // ... r5's
     (* syn_keep = "true" *) wire f1_0 = g_c && !a1g0;                             // nrl 0

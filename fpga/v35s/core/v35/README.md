@@ -10090,3 +10090,36 @@ No port added, no integer. Record: build/overseer/wo41/rtl.md.
   register, puts all 58 comparable rows of the eighth set and f5_pe_h4 / f5_pf_a / f5_pf_c on
   silicon. Without it the slot map behind FINT stays one clock off (f5_pe_h4 early, f5_pf_a / c
   late), the in-service rounds on the take's old phase.
+
+## Work order 42: MOV dmem,acc / MOV acc,dmem posted on the address word, the chain's own request against CH_BNEXT, MOV byte [d16],imm8 in the ModR/M store's direct shape
+
+Built on work order 41. Source: the ninth passage probe (passage.py f5_pj_*, 15 programs, 510
+windows at 0 to 2 waits, two sessions; build/overseer/pace2 RESULTS). No port added, no integer,
+no opcode compare outside the generated decode. Record: build/overseer/wo42/rtl.md.
+
+- **MOV [d16],AW / AL and MOV AW / AL,[d16]** (urom/bus.uasm `st_dir`, `ld_dir`): the address
+  register, (the store) the accumulator into the write datum and the post on one word, Y + 2,
+  one word fewer: the cycle is due on S + 5 (S the routine's first word) whenever no fetch
+  occupies S + 5 and starts behind that fetch otherwise (silicon: S + 5 in exactly the windows
+  with 7 held on S; S + 6 / 7 / 8 / 10 behind the fetch the address bytes' release starts or
+  the chain behind a fetch from S). `st_dir` two beyond the book, `ld_dir` the book's 10.
+- **The chain's own request does not stand behind CH_BNEXT's hold** (v35_bus.sv `lcb`): the fetch
+  chained to the fetch that followed a memory write (`few`) is dropped on a word followed by a
+  bus-idle word (`bnx`, r24) only when no request of the chain's own is standing or being posted
+  (`lcb = lc && ych && c5r && !un_w && !wur`: its request word executed inside the chain, five or
+  fewer held, not an unarmed write). Such a request gives way to the chain's next fetch anyway
+  (LCHW `lcw`, LCR `lcr`) and the bus-idle word behind its post waits for the request's cycle,
+  so the hold buys nothing; silicon chains the fetch. The case: MOV [d16],acc behind PUSH (the
+  fetch behind PUSH's write from S, 4 held): its post word, now on the fetch's delivery clock,
+  is an `nb` word (followed by the bus-idle E word); at 1 wait silicon's chained fetch runs
+  S + 4 .. S + 7 and the write is on S + 8, at 2 waits S + 5 .. S + 9 and S + 10. With the old
+  post clock the word there was the address word (no `nb`): the same rule gives the same result.
+  (`lcw` itself is not the term: the request's cycle register loads at the post's end, so on the
+  post clock lcw reads the previous request's kind.) Registers only, in `bnx1` (fr's arms).
+- **MOV byte [d16],imm8 (C6 06)** (urom/mem.uasm `st_imm8_dir`, mod 00 rm 110, entered directly):
+  the ModR/M direct store's sequence (`st` through `eaq16`): the direct address's two pops (Y on
+  the second), the address, both address bytes released on S + 3 with the immediate's pop, the
+  immediate into the write datum with the post on S + 4, E with the immediate and the next opcode
+  released on the write's first clock (bus-idle). `st_imm8` keeps m00, d8, d16 (`paths=`). Every
+  prelude and window-setup SFR store is this form. The loader's decode text (v35_umdsp,
+  v35_umimm, v35_umodrm, v35_upage) is byte-identical.
