@@ -16,6 +16,7 @@ frame through phase.py: windows between the markers, receipts, stitching, compar
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage pf [pf_ | pe_h4] [--ref sim] [-v]   (the sixth set: f5_pf_*)
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage pi [pi_] [--ref sim] [-v]   (the eighth set: f5_pi_*)
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage pj [pj_] [--ref sim]        (the ninth set: f5_pj_*)
+    PYTHONPATH=host/src:. python3 -m validation.v35s.passage pj [pj_wj pj_wx] [--ref sim]   (the twelfth set: f5_pj_wj_*, f5_pj_wx_*)
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage pk [pk_] [--ref sim] [-v --cand sim]   (the tenth set: f5_pk_*; -v: the candidate's line where it differs)
 
 Series (one program a kind of instruction X; `_r` the twin in which nothing is taken: the
@@ -51,6 +52,10 @@ vector read is on the pins):
     pj_Y_wN      (the ninth set) no request: a lead that sets the queue's state, then Y (MOV [d16],AW / AL, MOV
             AW,[d16], MOV byte [d16],imm8, MOV [d16],AW by ModR/M) at N waits in block 0: the routine's clock of
             the data cycle (build/overseer/pace2)
+    pj_wj_wN, pj_wx_wN   (the twelfth set) the ninth set's frame with Y = MOV word [d16],imm16 (wj: every lead),
+            and (wx: six leads) the same at an odd address (two byte cycles) beside MOV [d16],AW by ModR/M at
+            that address, and MOV word / byte DS1:[FE40h],imm (internal RAM: no pin cycle, mark 2 is the
+            reading) (build/overseer/passage12)
     pk_*         (the tenth set) one request; its handler calls lead ; X ; RET (X: FINT, nothing, NOP NOP, an
             on-chip store / read) with block 0 at 0 / 1 / 2 waits (pk_r_*: field 3 and READY, --ready 48 / 80:
             3 / 4 waits), the routine near or far in block 2, the level in service or not, POP AW behind X
@@ -1675,8 +1680,9 @@ def programs9():
 
 
 def pj_rows(name, backend, progs, c=32):
-    """The ninth set by window, clocks after the sled's read (3F800h): the fetches' starts up to Y's cycle
-    (address's low byte:clock), Y's data cycle, marks 2 and 3."""
+    """The ninth and twelfth sets by window, clocks after the sled's read (3F800h): the fetches' starts up to
+    Y's cycle (address's low byte:clock), Y's data cycle (the twelfth set's word at an odd address: its two
+    byte cycles; an on-chip target: none), marks 2 and 3."""
     prog = progs[name]
     rec = ph.load(name, backend)
     wins, _ = oc.windows(rec, prog)
@@ -1688,10 +1694,57 @@ def pj_rows(name, backend, progs, c=32):
             print(f"  {k:2d} no anchor")
             continue
         f = lambda t: "-" if t is None else ph.fmt((t - t0) / c)
-        ty = next((r[0] for kind, r in rows if kind in ("mr", "mw") and r[1] == 0x30000 + PJ_AT and r[0] > t0), None)
+        at = m.get("pj_at", PJ_AT)
+        ys = [] if at is None else [r[0] for kind, r in rows if kind in ("mr", "mw") and r[0] > t0
+                                    and 0x30000 + at <= r[1] <= 0x30000 + at + 1]
+        ty = ys[0] if ys else None
         mk = {j: next((r[0] for kind, r in rows if kind == "mw" and r[1] == MARK + 2 * j), None) for j in (2, 3)}
         fe = [f"{r[1] & 0xFF:02X}:{f(r[0])}" for kind, r in rows if kind == "fetch" and t0 < r[0] and (ty is None or r[0] < ty)]
-        print(f"  {k:2d} al {m['pj_al']} {m['pj_lead']:3s} | Y {f(ty):>4s} m2 {f(mk[2]):>4s} m3 {f(mk[3]):>4s} | {' '.join(fe)}")
+        yy = f"{m['pj_y']} " if "pj_at" in m else ""
+        print(f"  {k:2d} al {m['pj_al']} {m['pj_lead']:3s} {yy}| Y {'/'.join(f(t) for t in ys) or '-':>4s} m2 {f(mk[2]):>4s} m3 {f(mk[3]):>4s} | {' '.join(fe)}")
+
+
+# ------------------------------------------------------------------ the twelfth set (f5_pj_wj_*, f5_pj_wx_*)
+# MOV word [d16],imm16 (C7 /0, mod 00 rm 110) in the ninth set's frame (build/overseer/passage12): the one
+# direct-address MOV the ninth set did not hold. wj: Y at the even address F810h behind every lead (its
+# comparison is the ninth set's sm and wi, the same windows). wx, six leads: the word at the odd address
+# F811h (two byte cycles) beside MOV [F811h],AW by ModR/M, and the word and the byte immediate to internal
+# RAM through DS1 (FFE40h, RAMEN 1: no pin cycle; mark 2's write is the reading).
+PJ_Y12 = {
+    "wj": ([0xC7, 0x06, 0x10, 0xF8, 0x34, 0x12], "MOV word [F810h], 1234h", 0xF810),
+    "wo": ([0xC7, 0x06, 0x11, 0xF8, 0x34, 0x12], "MOV word [F811h], 1234h", 0xF811),
+    "so": ([0x89, 0x06, 0x11, 0xF8], "MOV [F811h], AW   ; ModR/M, mod 00 rm 110", 0xF811),
+    "wr": ([0x26, 0xC7, 0x06, 0x40, 0xFE, 0x34, 0x12], "MOV word DS1:[FE40h], 1234h   ; internal RAM", None),
+    "br": ([0x26, 0xC6, 0x06, 0x40, 0xFE, 0x00], "MOV byte DS1:[FE40h], 00h   ; internal RAM", None),
+}
+PJ_LEAD12 = ("m1", "mi", "m3", "j0", "j2", "pu")
+
+
+def set_pj12(ys, w, leads=None):
+    out = []
+    for y in ys:
+        yb, yt, at = PJ_Y12[y]
+        for al in (0, 1):
+            for ln, lead in PJ_LEAD:
+                if leads is not None and ln not in leads:
+                    continue
+                ops = ((("mark", 1),) + ((("raw", [0x90], "NOP   ; the other alignment"),) if al else ())
+                       + (("dw0",), ("sl", 0)) + lead + (("raw", yb, yt + "   ; Y"), ("mark", 2), ("mark", 3), ("inc", 12)))
+                out.append(window("j", len(out), ops, pre=(("ei",),), wt=w, kind="mul", pj_y=y, pj_lead=ln, pj_al=al,
+                                  pj_w=w, pj_at=at))
+    return out
+
+
+def programs12():
+    progs = []
+    for w in (0, 1, 2):
+        progs.append(prog(f"f5_pj_wj_w{w}", set_pj12(("wj",), w),
+                          f"the lead ; MOV word [F810h], 1234h ; marks: block 0 at {w} waits, no request"))
+    for w in (0, 1, 2):
+        progs.append(prog(f"f5_pj_wx_w{w}", set_pj12(("wo", "so", "wr", "br"), w, PJ_LEAD12),
+                          f"six leads ; MOV word [F811h],imm16 / MOV [F811h],AW / MOV word, byte DS1:[FE40h],imm ; marks: "
+                          f"block 0 at {w} waits, no request"))
+    return {p.name: p for p in progs}
 
 
 # ------------------------------------------------------------------ the tenth set (f5_pk_*)
@@ -2339,7 +2392,7 @@ def events11(rec, prog):
 def allprogs():
     progs = programs()
     for f in (programs2, programs3, programs4, programs5, programs6, programs7, programs8, programs9, programs10,
-              programs11):
+              programs11, programs12):
         progs.update(f())
     return progs
 

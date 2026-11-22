@@ -4189,3 +4189,18 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   long at wait 0. The prelude's total error falls from 192 to 224 ticks to 96. Silicon
   still has refresh on in that part of the prelude and the simulation does not model it;
   the remaining 3 clocks are not explained.
+- **2026-11-22, passage probe, twelfth set (f5_pj_wj_*, f5_pj_wx_*, 6 programs, 246 windows,
+  two power-ups equal).** `MOV word [d16],imm16` on the socket: the landed core (c5485d0) is
+  equal in 246 of 246 whole windows, so the existing routine stays and nothing is built.
+  With S the routine's first clock and B the clock of the word that releases the address
+  bytes (S+3 at the earliest; bus-idle and strict, so it waits out a running or chained
+  fetch): a fetch starts on B; the immediate bytes are popped on B+1 and B+2; the write is
+  posted unarmed on B+3 and armed on B+4. At 0 waits the write starts on B+4 (S+7) at any
+  queue count; at 1 and 2 waits with 3 or fewer bytes held a chained fetch goes first; with
+  4 or more the write starts at the end of the fetch from B. An odd address is the same as
+  two byte cycles. The form is not the direct store's shape: at 0 waits its write is one
+  clock later than `MOV [d16],reg` and `MOV byte [d16],imm8` in 34 of 34 windows. A word
+  store to internal RAM takes one 3-clock slot (inferred from the fetch gap; no pin cycle).
+  Work order 42's trial routine (posting on S+4) gives 0 of 246 windows and is dropped. The
+  strict wait rests on one lead (PUSH, odd alignment). Not run: a prefixed external form,
+  reg fields other than 0, an SFR target, 3 waits / READY.
