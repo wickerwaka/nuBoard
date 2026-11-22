@@ -14,6 +14,9 @@ frame through phase.py: windows between the markers, receipts, stitching, compar
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage emit
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage pe [pe_] [--ref sim] [-v]   (the fifth set: f5_pe_*)
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage pf [pf_ | pe_h4] [--ref sim] [-v]   (the sixth set: f5_pf_*)
+    PYTHONPATH=host/src:. python3 -m validation.v35s.passage pi [pi_] [--ref sim] [-v]   (the eighth set: f5_pi_*)
+    PYTHONPATH=host/src:. python3 -m validation.v35s.passage pj [pj_] [--ref sim]        (the ninth set: f5_pj_*)
+    PYTHONPATH=host/src:. python3 -m validation.v35s.passage pk [pk_] [--ref sim] [-v --cand sim]   (the tenth set: f5_pk_*; -v: the candidate's line where it differs)
 
 Series (one program a kind of instruction X; `_r` the twin in which nothing is taken: the
 request masked or the pin not pulsed; `_b` the twin with BRK 3 behind X: a boundary whose
@@ -38,6 +41,16 @@ vector read is on the pins):
     pf_a .. c    (the sixth set) pe_h4 with f3_prio's handler tail (FINT ; RET ; DEC ; five POPs ; POP PSW ;
             RETI, about 200 clocks) between FINT and the RETI's rise: the sled behind FINT (a), in front of
             FINT (b), in front of POP PSW (c)
+    pi_pP_j      (the eighth set) pe_h4 with SER0 at level P (0 .. 6) taken first and two independent sleds in its
+            handler, s in front of FINT and d behind it: the scan's round with level P in service against the
+            round behind FINT (build/overseer/passage8)
+    pj_Y_wN      (the ninth set) no request: a lead that sets the queue's state, then Y (MOV [d16],AW / AL, MOV
+            AW,[d16], MOV byte [d16],imm8, MOV [d16],AW by ModR/M) at N waits in block 0: the routine's clock of
+            the data cycle (build/overseer/pace2)
+    pk_*         (the tenth set) one request; its handler calls lead ; X ; RET (X: FINT, nothing, NOP NOP, an
+            on-chip store / read) with block 0 at 0 / 1 / 2 waits (pk_r_*: field 3 and READY, --ready 48 / 80:
+            3 / 4 waits), the routine near or far in block 2, the level in service or not, POP AW behind X
+            (pk_p*); the timer stub's shape: FINT against the fetch cycles around it (build/overseer/passage9)
 
 Time marks: the stores of `mark` (00D80h + 2j), TOUT on P15, /INTAK on P13, the vector reads,
 the pushes (the third is the PC: it names the boundary), the scheduled edge (the event's record
@@ -1482,6 +1495,410 @@ def programs7():
     return {p.name: p for p in progs}
 
 
+# ------------------------------------------------------------------ the eighth set (f5_pi_*)
+# The scan around FINT by the level in service (build/overseer/passage8). f5_pe_h4's frame (four requests
+# stored, a sled of 6, mark 1, EI, 100 INC AW) with SER0 at level P, taken first; its handler:
+#   MOV DS0,IX ; MOV AH,[BW] ; ROL BP,CL ; MOV DS0,IY ; XCHG CH,CL ; FINT ; MOV AH,[BW] ; ROL BP,CL ; RETI
+# The first read is in block 2 (DS0 4000h), the second in block 3 (6000h): each sled's odd clock is its own
+# block's wait (WTC), so s (FINT against the round with level P in service) and d (the RETI's rise against
+# the round behind FINT) are swept one clock at a time independently; CL = 1 + s // 2, CH = 1 + d // 2.
+# Block 1's wait stays 0: the lead sled is the same in every window. One handler a program.
+PI_H = (("rawb", (0x8E, 0xDE), "MOV DS0, IX   ; 4000h: block 2"),
+        ("rawb", (0x8A, 0x27), "MOV AH, [BW]   ; block 2: the sled s's odd clock is its wait"),
+        ("rawb", (0xD3, 0xC5), "ROL BP, CL   ; 1 + s // 2"),
+        ("rawb", (0x8E, 0xDF), "MOV DS0, IY   ; 6000h: block 3"),
+        ("rawb", (0x86, 0xE9), "XCHG CH, CL"),
+        ("fint",),
+        ("rawb", (0x8A, 0x27), "MOV AH, [BW]   ; block 3: the sled d's odd clock is its wait"),
+        ("rawb", (0xD3, 0xC5), "ROL BP, CL   ; 1 + d // 2"),
+        ("reti",))
+PI_RS, PI_R = 0x4F800, 0x6F800
+# P: (the four stores' bytes: SER0 (level P), SER1, INTP0, TM0; {source: level} pending behind FINT; the
+# sled lengths s). Every pending level is worse than P; TM0's store is the last (it restarts the scan)
+PI_P = {
+    0: ((0x80, 0x83, 0x85, 0x86), {"se1": 3, "p0": 5, "tm0": 6}, range(4)),
+    1: ((0x81, 0x83, 0x85, 0x86), {"se1": 3, "p0": 5, "tm0": 6}, range(6)),
+    2: ((0x82, 0x83, 0x85, 0x86), {"se1": 3, "p0": 5, "tm0": 6}, range(8)),
+    3: ((0x83, 0x87, 0x85, 0x86), {"se1": 7, "p0": 5, "tm0": 6}, range(10)),
+    4: ((0x84, 0x87, 0x85, 0x86), {"se1": 7, "p0": 5, "tm0": 6}, range(12)),
+    5: ((0x85, 0x47, 0x87, 0x86), {"p0": 7, "tm0": 6}, range(14)),
+    6: ((0x86, 0x47, 0x47, 0x87), {"tm0": 7}, range(16)),
+}
+PI_ND = 22
+
+
+class Program8(la.Program):
+    """lattice.Program with the pages of the two sleds' reads mapped (4F000h, 6F000h)."""
+
+    def build(self):
+        if self._built:
+            return self._built
+        b = super().build()
+        for at in (PI_RS, PI_R):
+            b["segments"].setdefault(at & 0xFF000, bytes(0x1000))
+        return b
+
+
+def set_pi(P, ss):
+    st, pend, _ = PI_P[P]
+    out = []
+    for s in ss:
+        for d in range(PI_ND):
+            ops = (tuple(("st", PE_SRC[src], v) for src, v in zip(("se0", "se1", "p0", "tm0"), st))
+                   + (("sled", 6), ("mark", 1), ("ei",), ("inc", 100)))
+            # the body at f5_pe_h4's address parity for P 0 .. 2 (the first capture, at the other parity, had
+            # EI rise in level 5's slot there: INTP0 taken first); P 3 .. 6 as first captured (SER0 first)
+            pre = (("raw", [0xBF, 0x00, 0x60], "MOV IY, 6000h"),) + ((("raw", [0x90], "NOP   ; the body's parity"),) if P < 3 else ())
+            out.append(window("pi", len(out), ops, pre=pre, odd=0,
+                              wt=(s & 1) << 4 | (d & 1) << 6, hand={"se0": PI_H}, ix=0x4000,
+                              cw=(1 + d // 2) << 8 | (1 + s // 2), P=P, s=s, d=d, pend=pend))
+    return out
+
+
+def programs8():
+    progs = []
+    for P, (_, pend, ss) in PI_P.items():
+        ss = list(ss)
+        for j in range(0, len(ss), 2):
+            part = ss[j:j + 2]
+            p = Program8(f"f5_pi_p{P}_{j // 2}", set_pi(P, part),
+                         f"SER0 at level {P} in service: sled s {part} ; FINT ; sled d 0..{PI_ND - 1} ; RETI; pending {pend}",
+                         init=init, fini=oc.ports_off, pins=["P13", "P15"])
+            p.clk = 8
+            progs.append(p)
+    return {p.name: p for p in progs}
+
+
+def events8(rec, prog):
+    """events5 with rs / r (the starts of the two sleds' reads), psw (the PSW word's read of SER0's RETI),
+    v0 (the first take's vector read)."""
+    wins, _ = oc.windows(rec, prog)
+    ev = events5(rec, prog)
+    for k, e in ev.items():
+        rows = wins[k]["rows"]
+        e["rs"] = next((r[0] for kind, r in rows if kind == "mr" and r[1] == PI_RS), None)
+        e["r"] = next((r[0] for kind, r in rows if kind == "mr" and r[1] == PI_R), None)
+        e["psw"] = e["takes"][1][3] if len(e["takes"]) > 1 else None
+        e["v0"] = e["takes"][0][1] if e["takes"] else None
+        e["first"] = e["takes"][0][0] if e["takes"] else None
+    return ev
+
+
+def pi_sig(e, c=32):
+    """The takes behind SER0's: source:vector read less the PSW word's read/INCs run."""
+    cells = []
+    for i, (src, t, pc, rd) in enumerate(e["takes"]):
+        if i:
+            cells.append(f"{src}:{ph.fmt((t - rd) / c)}/n{'?' if pc is None else pc - e['meta']['first']}")
+    return " ".join(cells) or "no take"
+
+
+def pi_rows(name, backend, progs, verbose=False, c=32):
+    """The eighth set, per sled s: R-V0 = the second read's start less the first take's vector read (FINT
+    against the take: the phase in the round with level P in service), R-Rs = less the first read's start
+    (the sled s as the pins show it); then per window d: T = the PSW word's read less the second read's
+    start (the rise against FINT) and the takes; the windows not of the row's ordinary signature."""
+    prog = progs[name]
+    rec = ph.load(name, backend)
+    ok = rec["program_sha256"] == hashlib.sha256(prog.build()["text"]).hexdigest()
+    ev = events8(rec, prog)
+    print(f"{name} [{backend}] {'PASS' if rec['passed'] else 'FAIL'} total {rec['total']} "
+          f"{len(ev)}/{len(prog.windows)} windows" + ("" if ok else "  (THE RECEIPT IS OF ANOTHER VERSION)"))
+    f = lambda v: "-" if v is None else ph.fmt(v / c)
+    rows = collections.OrderedDict()
+    for k in sorted(ev):
+        rows.setdefault(ev[k]["meta"]["s"], []).append(ev[k])
+    for s, es in rows.items():
+        A = sorted({f(None if e["r"] is None or e["v0"] is None else e["r"] - e["v0"]) for e in es})
+        B = sorted({f(None if e["r"] is None or e["rs"] is None else e["r"] - e["rs"]) for e in es})
+        fi = sorted({str(e["first"]) for e in es})
+        sigs = collections.Counter(pi_sig(e) for e in es)
+        first = sigs.most_common(1)[0][0]
+        print(f"  P {es[0]['meta']['P']} s {s:2d}: first take {' '.join(fi)}; R-V0 {' '.join(A)}; R-Rs {' '.join(B)}; "
+              f"ordinary ({sigs[first]}) {first}")
+        for e in es:
+            sg = pi_sig(e)
+            T = None if e["psw"] is None or e["r"] is None else e["psw"] - e["r"]
+            if verbose or sg != first:
+                print(f"      d {e['meta']['d']:2d}: T {f(T):>4s}  {sg}")
+
+
+# ------------------------------------------------------------------ the ninth set (f5_pj_*)
+# When MOV dmem,acc / MOV acc,dmem starts its bus cycle (build/overseer/pace2). No request. mark 1 ; XOR DW,DW ;
+# the sled's read (3F800h: the anchor) ; ROL BP,1 ; the lead ; Y ; mark 2 ; mark 3 ; INC x 12. The lead sets the
+# queue's state at Y's start; `al`: a NOP in front of XOR DW,DW (Y at the other address parity); the program's
+# w: block 0's waits (the fetches' and the marks'; Y's own datum is in block 1 at DS0:F810h, never waited).
+PJ_AT = 0xF810
+PJ_Y = {
+    "sd": ([0xA3, 0x10, 0xF8], "MOV [F810h], AW"),
+    "ld": ([0xA1, 0x10, 0xF8], "MOV AW, [F810h]"),
+    "sa": ([0xA2, 0x10, 0xF8], "MOV [F810h], AL"),
+    "wi": ([0xC6, 0x06, 0x10, 0xF8, 0x00], "MOV byte [F810h], 00h"),
+    "sm": ([0x89, 0x06, 0x10, 0xF8], "MOV [F810h], AW   ; ModR/M, mod 00 rm 110"),
+}
+_MUL = ("x", "mul", 1)
+_NOP = ("raw", [0x90], "NOP   ; lead")
+_INC = ("raw", [0x40], "INC AW   ; lead")
+_BR = ("raw", [0xEB, 0x00], "BR $+2   ; lead: the queue emptied")
+PJ_LEAD = (
+    ("m0", (_MUL,)), ("m1", (_MUL, _NOP)), ("m2", (_MUL,) + (_NOP,) * 2), ("m3", (_MUL,) + (_NOP,) * 3),
+    ("m4", (_MUL,) + (_NOP,) * 4), ("mi", (_MUL, _INC)), ("mii", (_MUL, _INC, _INC)), ("r0", ()),
+    ("j0", (_BR,)), ("j1", (_BR, _NOP)), ("j2", (_BR,) + (_NOP,) * 2), ("j3", (_BR,) + (_NOP,) * 3),
+    ("j4", (_BR,) + (_NOP,) * 4), ("j5", (_BR,) + (_NOP,) * 5),
+    ("pu", (_MUL, ("raw", [0x50], "PUSH AW   ; lead"))),
+    ("sb", (_MUL, ("raw", [0x89, 0x07], "MOV [BW], AW   ; lead"))),
+    ("mm", (_MUL, ("raw", [0x8B, 0xC2], "MOV AW, DW   ; lead"))),
+)
+
+
+def set_pj(y, w):
+    out = []
+    for al in (0, 1):
+        for ln, lead in PJ_LEAD:
+            yb, yt = PJ_Y[y]
+            ops = ((("mark", 1),) + ((("raw", [0x90], "NOP   ; the other alignment"),) if al else ())
+                   + (("dw0",), ("sl", 0)) + lead + (("raw", yb, yt + "   ; Y"), ("mark", 2), ("mark", 3), ("inc", 12)))
+            out.append(window("j", len(out), ops, pre=(("ei",),), wt=w, kind="mul", pj_y=y, pj_lead=ln, pj_al=al, pj_w=w))
+    return out
+
+
+def programs9():
+    progs = []
+    for y in PJ_Y:
+        for w in (0, 1, 2):
+            progs.append(prog(f"f5_pj_{y}_w{w}", set_pj(y, w), f"the lead ; {PJ_Y[y][1].split('   ;')[0]} ; marks: block 0 at {w} waits, no request"))
+    return {p.name: p for p in progs}
+
+
+def pj_rows(name, backend, progs, c=32):
+    """The ninth set by window, clocks after the sled's read (3F800h): the fetches' starts up to Y's cycle
+    (address's low byte:clock), Y's data cycle, marks 2 and 3."""
+    prog = progs[name]
+    rec = ph.load(name, backend)
+    wins, _ = oc.windows(rec, prog)
+    print(f"{name} [{backend}] {'PASS' if rec['passed'] else 'FAIL'} total {rec['total']} {len(wins)}/{len(prog.windows)} windows")
+    for k in sorted(wins):
+        m, rows = prog.windows[k].meta, wins[k]["rows"]
+        t0 = next((r[0] for kind, r in rows if kind == "mr" and r[1] == 0x3F800), None)
+        if t0 is None:
+            print(f"  {k:2d} no anchor")
+            continue
+        f = lambda t: "-" if t is None else ph.fmt((t - t0) / c)
+        ty = next((r[0] for kind, r in rows if kind in ("mr", "mw") and r[1] == 0x30000 + PJ_AT and r[0] > t0), None)
+        mk = {j: next((r[0] for kind, r in rows if kind == "mw" and r[1] == MARK + 2 * j), None) for j in (2, 3)}
+        fe = [f"{r[1] & 0xFF:02X}:{f(r[0])}" for kind, r in rows if kind == "fetch" and t0 < r[0] and (ty is None or r[0] < ty)]
+        print(f"  {k:2d} al {m['pj_al']} {m['pj_lead']:3s} | Y {f(ty):>4s} m2 {f(mk[2]):>4s} m3 {f(mk[3]):>4s} | {' '.join(fe)}")
+
+
+# ------------------------------------------------------------------ the tenth set (f5_pk_*)
+# FINT against the bus cycles around it (build/overseer/passage9): f5_pf_x's frame with one request (SER0 at
+# level lv, taken out of the INC train), its handler calling a routine `lead ; X ; RET` through a word
+# (f3_prio's shape), block 0's waits w (code and stack), or the routine called far in block 2 (4000h: wf
+# its waits, the code's alone; block 0's then the stack's and the handler's). sv 1: the level in service
+# at the routine (the handler's own FINT behind the CALL); sv 0: the handler's FINT in front of the
+# pushes (nothing in service at the routine). tp / hp: the routine / the handler at an odd address.
+# Or (st 1) the periph timer stub's shape as the handler itself: MOV byte PS:[m],n ; INC byte PS:[m] ; X ;
+# RETI. Measured (two captures, 520 FINT windows): FINT is two steps of two clocks, each lasting to the end
+# of a fetch cycle that starts on its first clock; its second byte leaves the queue on its first word; the
+# level in service and the stack's waits do not enter (build/overseer/passage9/RESULTS.md).
+PK_FAR, PK_FSEG = 0x40100, 0x4000
+PK_ST, PK_CT = 0x0DE0, 0x0DE2
+_n = lambda k: (("nop", k),)                            # noqa: E731
+_di = ("rawb", (0xFA,), "DI")
+PK_LEAD = collections.OrderedDict(
+    [("t", ()), ("n1", _n(1)), ("n2", _n(2)), ("n3", _n(3)), ("d1", (_di,)), ("nd", _n(1) + (_di,)), ("dd", (_di, _di))]
+    + [(f"s{s}", (("sl", s),)) for s in range(8)]
+    + [("f", (("fil", 1),)), ("fn", (("fil", 1),) + _n(1))])
+PK_X = {
+    "none": (), "fint": (("fint",),), "nop2": _n(2),
+    "sfw": (("rawb", (0x26, 0xC6, 0x06, 0x00, 0xFF, 0x00), "MOV byte DS1:[FF00h], 00h   ; P0's latch"),),
+    "sfr": (("rawb", (0x26, 0xA0, 0xFC, 0xFF), "MOV AL, DS1:[FFFCh]   ; ISPR read"),),
+    "isw": (("rawb", (0x26, 0xC6, 0x06, 0xFC, 0xFF, 0x00), "MOV byte DS1:[FFFCh], 00h   ; a store to ISPR"),),
+    "irw": (("rawb", (0x26, 0xC6, 0x06, 0x40, 0xFE, 0x00), "MOV byte DS1:[FE40h], 00h   ; internal RAM"),),
+}
+_callf = ("rawb", (0x36, 0xFF, 0x1E, PF_PTR & 0xFF, PF_PTR >> 8), f"CALL far SS:[{PF_PTR:04X}h]")
+_stub = (("rawb", (0x2E, 0xC6, 0x06, PK_ST & 0xFF, PK_ST >> 8, 0x01), f"MOV byte PS:[{PK_ST:04X}h], 01h"),
+         ("rawb", (0x2E, 0xFE, 0x06, PK_CT & 0xFF, PK_CT >> 8), f"INC byte PS:[{PK_CT:04X}h]"))
+
+
+def pk_ops(a, ops):
+    emit_ops(a, [op for op in ops if op[0] not in ("odd", "far")])
+
+
+class Program10(la.Program):
+    """lattice.Program with every handler and routine at an even address (`odd` as its first operation: at
+    an odd one) and the routines marked `far` laid out in block 2 from 40100h."""
+
+    def build(self):
+        if self._built:
+            return self._built
+        addr, blob, fblob = {H_PLAIN: ph.HANDLER}, bytearray(), bytearray()
+        for w in self.windows:
+            for h in w.hand.values():
+                if h in addr:
+                    continue
+                far, odd = ("far",) in h, int(("odd",) in h)
+                tgt, base = (fblob, PK_FAR) if far else (blob, HBASE)
+                while (base + len(tgt)) & 1 != odd:
+                    tgt.append(0x90)
+                a = Asm(base + len(tgt))
+                pk_ops(a, h)
+                addr[h] = base + len(tgt)
+                tgt += a.finish()
+            w.addr = addr
+        if HBASE + len(blob) > MARK:
+            raise ValueError(f"{self.name}: {len(blob)} bytes of handlers")
+        b = ph.Program.build(self)
+        page = bytearray(b["segments"][0])
+        page[HBASE:HBASE + len(blob)] = blob
+        b["segments"][0] = bytes(page)
+        if fblob:
+            page = bytearray([0x90]) * 0x1000
+            page[PK_FAR & 0xFFF:(PK_FAR & 0xFFF) + len(fblob)] = fblob
+            b["segments"][PK_FAR & 0xFF000] = bytes(page)
+        b["text"] += bytes(blob) + bytes(fblob)
+        return b
+
+
+def pk_win(n, x, lead="t", w=0, sv=1, tp=0, hp=0, far=0, wf=0, lv=0, st=0, fol="ret"):
+    odd = int(lead[1:]) & 1 if lead[0] == "s" else 0
+    hflag = (("odd",),) if hp else ()
+    if st:
+        pre = (("fint",),) if not sv else ()
+        hand = {"se0": hflag + pre + _stub + PK_X[x] + (("reti",),)}
+    else:
+        call = (_callf,) if far else (("calli", PF_PTR),)
+        tail = (("decb", PF_BYTE), ("pops",), ("popf",), ("reti",))
+        h = (("pushes",),) + call + (("fint",),) + tail if sv else (("fint",), ("pushes",)) + call + tail
+        # fol pop: POP AW ; PUSH AW between X and the return (another instruction behind FINT: its read)
+        act = ((("far",),) if far else ()) + ((("odd",),) if tp else ()) + PK_LEAD[lead] + PK_X[x] \
+            + ((("popw",), ("pushw",)) if fol == "pop" else ()) + ((("rawb", (0xCB,), "RETF"),) if far else (("ret",),))
+        hand = {"se0": hflag + h, "act": act}
+    # the stub without FINT leaves its level in service: a FINT behind the INC train clears it
+    win = window("pk", n, (("st", 0xFF6C, 0x80 | lv), ("sled", 6), ("mark", 1), ("ei",), ("inc", 40))
+                 + ((("fint",),) if st else ()), odd=odd, wt=w | wf << 4, hand=hand, x=x, lead=lead, w=w, sv=sv, tp=tp, hp=hp, far=far, wf=wf, lv=lv, st=st, fol=fol)
+
+    def setup(a, s0=win.setup):
+        s0(a)
+        if "act" in win.hand:
+            at = win.addr[win.hand["act"]]
+            a.op([0x36, 0xC7, 0x06, PF_PTR & 0xFF, PF_PTR >> 8, at & 0xFF, at >> 8 & 0xFF],
+                 f"MOV word SS:[{PF_PTR:04X}h], {at & 0xFFFF:04X}h   ; the handler's routine")
+            if far:
+                a.op([0x36, 0xC7, 0x06, PF_PTR + 2 & 0xFF, PF_PTR >> 8, PK_FSEG & 0xFF, PK_FSEG >> 8],
+                     f"MOV word SS:[{PF_PTR + 2:04X}h], {PK_FSEG:04X}h   ; its segment (block 2)")
+    win.setup = setup
+    return win
+
+
+def init_r(a):
+    oc.ports_on(a)
+    oc.es_store(a, 0xFF0A, 0xB8)        # PMC1 as init's with bit 7: P17 is READY
+
+
+def programs10():
+    progs, sets = [], collections.OrderedDict()
+    for sv in (1, 0):
+        for x in ("none", "fint", "nop2"):
+            sets[f"{'s' if sv else 'n'}_{x}"] = (
+                [dict(x=x, lead=ld, w=w, sv=sv, tp=tp) for w in (0, 1, 2) for tp in (0, 1) for ld in PK_LEAD],
+                f"the routine lead ; {x} ; RET, block 0 at 0 / 1 / 2 waits: " + ("the level in service" if sv else "nothing in service"))
+    short = ("t", "s0", "s1", "s2", "s3", "s4", "s5", "f")
+    for nm, xs in (("ca", ("sfw", "sfr")), ("cb", ("isw", "irw"))):
+        sets[nm] = ([dict(x=x, lead=ld, w=w) for x in xs for w in (0, 2) for ld in short],
+                    f"the contrast: {' / '.join(xs)} in FINT's place, block 0 at 0 / 2 waits")
+    for x in ("none", "fint", "nop2"):
+        sets[f"f_{x}"] = ([dict(x=x, lead=ld, far=1, wf=wf, w=w) for wf, w in ((0, 0), (1, 0), (2, 0), (0, 1), (0, 2), (2, 2))
+                           for ld in ("t", "n1") + short[1:]],
+                          f"the routine lead ; {x} ; RETF in block 2 (its waits the code's), block 0's the stack's")
+    sets["stub"] = ([dict(x=x, st=1, w=w, lv=lv, hp=hp, sv=sv) for w in (0, 1, 2) for lv in (7, 0) for hp in (0, 1)
+                     for x, sv in (("fint", 1), ("none", 1), ("nop2", 1), ("fint", 0))],
+                    "the timer stub's shape as the handler: MOV byte PS:[m],n ; INC byte PS:[m] ; X ; RETI")
+    sets["l"] = ([dict(x=x, lead=ld, w=w, lv=lv, hp=hp) for lv, hp in ((0, 1), (7, 0)) for w in (0, 2) for x in ("fint", "none")
+                  for ld in short], "the handler at an odd address (f3_prio's CALL); level 7 in service")
+    for x in ("none", "fint"):
+        sets[f"p_{x}"] = ([dict(x=x, lead=ld, w=w, tp=tp, fol="pop") for w in (0, 1, 2) for tp in (0, 1) for ld in PK_LEAD],
+                          f"the routine lead ; {x} ; POP AW ; PUSH AW ; RET, block 0 at 0 / 1 / 2 waits: POP's read behind FINT")
+        sets[f"pf_{x}"] = ([dict(x=x, lead=ld, far=1, wf=wf, w=w, fol="pop") for wf, w in ((0, 0), (1, 0), (2, 0), (2, 2))
+                            for ld in ("t", "n1") + short[1:]],
+                           f"the same, the routine far in block 2 (lead ; {x} ; POP AW ; PUSH AW ; RETF)")
+    # field 0 at 3 (two waits and READY) with P17 as READY: run with --ready 48 (the harness holds READY 48
+    # ticks: a third wait in every read and fetch of block 0, the writes stay at 2) or --ready 80 (a fourth)
+    for x in ("none", "fint", "nop2"):
+        sets[f"r_{x}"] = ([dict(x=x, lead=ld, w=3, tp=tp) for tp in (0, 1) for ld in PK_LEAD],
+                          f"the routine lead ; {x} ; RET, block 0 at field 3 (READY: --ready 48 / 80 for 3 / 4 waits a read)")
+    for nm, (specs, note) in sets.items():
+        p = Program10(f"f5_pk_{nm}", [pk_win(i, **s) for i, s in enumerate(specs)], note,
+                      init=init_r if nm.startswith("r_") else init, fini=oc.ports_off, pins=["P13", "P15"])
+        p.clk = 8
+        progs.append(p)
+    return {p.name: p for p in progs}
+
+
+def pk_events(rec, prog):
+    """Per window: v0 (the take's vector read), f (the first fetch at the routine's address behind it; the
+    stub: at the handler's), ret (the first stack read behind f), bus [(label, tick)]: every record from v0
+    on, labelled f / r / w + the last three hex places of the address (s for a stack address' read, p for
+    its write)."""
+    wins, _ = oc.windows(rec, prog)
+    out = {}
+    for k, w in wins.items():
+        win = prog.windows[k]
+        m = win.meta
+        rows = [(kind, r) for kind, r in w["rows"] if kind not in ("pin", "idle")]
+        i0 = next((i for i, (kind, r) in enumerate(rows) if kind == "mr" and r[1] == VEC["se0"]), None)
+        e = dict(meta=m, v0=None, f=None, ret=None, bus=[])
+        if i0 is not None:
+            e["v0"] = rows[i0][1][0]
+            fa = win.addr[win.hand["act" if "act" in win.hand else "se0"]]
+            for kind, r in rows[i0:]:
+                stack = 0xE00 <= r[1] < STACK_TOP
+                rd = kind in ("mr", "fetch")
+                lab = ("s" if rd else "p") if stack else ("w" if not rd else "f" if kind == "fetch" or r[1] >= 0x40000 else "r")
+                e["bus"].append((f"{lab}{r[1] & 0xFFF:03X}", r[0]))
+                if e["f"] is None and rd and r[1] == fa:
+                    e["f"] = r[0]
+                elif e["f"] is not None and e["ret"] is None and rd and stack:
+                    e["ret"] = r[0]
+        out[k] = e
+    return out
+
+
+def pk_line(e, c=32, n=3):
+    """A window as text: RET's (the stub: RETI's) first stack read less f, then the records from two in
+    front of f to n behind the read, clocks after f (the stub: every clock after v0 instead)."""
+    m = e["meta"]
+    tag = (f"{m['x']:4s} {'stub' if m['st'] else m['lead']:4s} w{m['w']}" + (f"/{m['wf']}" if m["far"] else "")
+           + f" sv{m['sv']} tp{m['tp']} hp{m['hp']} lv{m['lv']}")
+    if e["f"] is None or e["ret"] is None:
+        return tag + " | no routine"
+    t0 = e["v0"] if m["st"] else e["f"]
+    ts = [t for _, t in e["bus"]]
+    i, j = ts.index(e["f"]), ts.index(e["ret"])
+    lo = 0 if m["st"] else max(0, i - 2)
+    cells = [f"{lab}:{ph.fmt((t - t0) / c)}" for lab, t in e["bus"][lo:j + 1 + n]]
+    return tag + f" | read {ph.fmt((e['ret'] - t0) / c):>4s} | " + " ".join(cells)
+
+
+def pk_rows(name, backend, progs, cand=None):
+    prog = progs[name]
+    rec = ph.load(name, backend)
+    ok = rec["program_sha256"] == hashlib.sha256(prog.build()["text"]).hexdigest()
+    ev = pk_events(rec, prog)
+    ev2 = pk_events(ph.load(name, cand), prog) if cand else {}
+    print(f"{name} [{backend}] {'PASS' if rec['passed'] else 'FAIL'} total {rec['total']} "
+          f"{len(ev)}/{len(prog.windows)} windows" + ("" if ok else "  (THE RECEIPT IS OF ANOTHER VERSION)"))
+    nd = 0
+    for k in sorted(ev):
+        a = pk_line(ev[k])
+        print(f"  {k:3d} {a}")
+        if k in ev2 and pk_line(ev2[k]) != a:
+            nd += 1
+            print(f"      {cand:>{len(a.split(' | ')[0]) - 2}s} | " + " | ".join(pk_line(ev2[k]).split(" | ")[1:]))
+    if cand:
+        print(f"  {nd} of {len(ev)} windows differ in {cand}")
+
+
 def pf_fint(win):
     """The address of the first word of SER0's handler's routine in a pf window (FINT's word in a, c and
     x fint; the sled's in b), of SER0's handler in a peh window (FINT's word in pe_h2 / h4)."""
@@ -1686,14 +2103,31 @@ def emit(progs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list", "pilot", "pc", "pcrows", "pcb", "pco", "pilot4", "pilote", "pdx", "pd", "pe", "pf"))
+    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list", "pilot", "pc", "pcrows", "pcb", "pco", "pilot4", "pilote", "pdx", "pd", "pe", "pf", "pi", "pj", "pk"))
     p.add_argument("names", nargs="*")
     p.add_argument("--tag", default="")
     p.add_argument("--ref", default="socket")
     p.add_argument("--cand", default="sim")
     p.add_argument("--socket-fitted", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--ready", type=int, default=0, help="socket / sim: the harness's READY hold in ticks (register 0Ah)")
     a = p.parse_args()
+    if a.ready:
+        from . import traps
+
+        def held(open_):
+            def f():
+                transport, harness = open_()
+                harness.debug.write16(0x0A, a.ready)
+                return transport, harness
+            return f
+        traps._board, traps._sim = held(traps._board), held(traps._sim)
+        close_ = traps._close_board
+
+        def close(transport, harness):
+            harness.debug.write16(0x0A, 0)          # the hold back to none before the board is released
+            close_(transport, harness)
+        traps._close_board = close
     progs = programs()
     progs.update(programs2())
     progs.update(programs3())
@@ -1701,6 +2135,9 @@ def main():
     progs.update(programs5())
     progs.update(programs6())
     progs.update(programs7())
+    progs.update(programs8())
+    progs.update(programs9())
+    progs.update(programs10())
     names = []
     for n in a.names or list(progs):
         names += [x for x in progs if x == n or x == "f5_pa_" + n] or [x for x in progs if x.startswith("f5_pa_" + n) or x.startswith("f5_" + n)]
@@ -1751,6 +2188,18 @@ def main():
         for n in names:
             if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] in ("pf", "peh"):
                 pf_rows(n, a.ref + a.tag, progs, a.verbose)
+    elif a.action == "pi":
+        for n in names:
+            if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] == "pi":
+                pi_rows(n, a.ref + a.tag, progs, a.verbose)
+    elif a.action == "pj":
+        for n in names:
+            if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] == "j":
+                pj_rows(n, a.ref + a.tag, progs)
+    elif a.action == "pk":
+        for n in names:
+            if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] == "pk":
+                pk_rows(n, a.ref + a.tag, progs, a.cand if a.verbose else None)
     elif a.action == "pco":
         pc_o("f5_pc_o", a.ref + a.tag, progs)
     elif a.action == "pcb":

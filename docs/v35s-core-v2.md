@@ -4071,3 +4071,37 @@ programs `f5_pg_a` .. `d`, 100 windows, two sessions EQUAL):** measurement only.
   third or fourth clock go first. Not explained: whether the request is due a clock sooner or
   a leading word is a wait that a full queue satisfies; MOV byte [d16],imm8 2 to 3 clocks
   early on silicon in the same frames; 26 early segments without the signature.
+
+**2026-11-21, passage probes, eighth to tenth sets (`validation/v35s/passage.py` actions `pi`,
+`pj` and the FINT set; two socket sessions each, every program EQUAL):** measurement only.
+  - **The scan around FINT (`f5_pi_p{P}_{j}`, 35 programs, 1,540 windows):** with level P in
+    service the round is 2(P+1) clocks and its level-0 clock falls 8 clocks before the take's
+    vector read plus whole rounds, for every P 0..6: the count is fixed against the take.
+    FINT's clear is seen 8 clocks after FINT's fetch; the round in progress is not cut at P,
+    the count runs on to level 7, then full rounds (16 plus 2 a pending level) follow. The
+    slot of level L begins at F + 8 - phi + 2L + 2b + m(16 + 2n), phi the in-service round's
+    phase at the clear, b the pending levels better than L, n all pending levels. Fits all 70
+    rows and predicts f5_pe_h4 and f5_pf_a / c exactly. Work order 40's core sees the clear a
+    clock early and has the in-service phase off by -1, -1, +1, +2, -1, -2 for P = 0, 1, 2, 3,
+    5, 6.
+  - **FINT's length (520 windows, 0 to 4 waits):** FINT is two steps, each two clocks unless
+    a fetch cycle starts on the step's first clock, when the step lasts to that cycle's end;
+    step 1 releases FINT's second byte on its first clock. Four lengths with c = 3 + code
+    waits: 4, 2 + c, c + 2, 2c. The level in service does not enter (the earlier "6 with a
+    level, 5 with none" was FINT's place against the fetches); stack waits do not enter; no
+    bus hold; other on-chip accesses in FINT's place behave as the core does. Reproduces
+    f5_pf_x (21; FINT ; FINT 26), the timer stub (RETI's read 126 from the vector read) and
+    refresh-off f3_prio (RET's read +31, the fifth fetch +20). Not produced: a FINT
+    dispatched with a fetch in flight.
+  - **MOV dmem,acc / MOV acc,dmem (`f5_pj_*`, 510 windows, 0 to 2 waits):** the cycle starts
+    on the routine's first clock + 5 whenever no fetch occupies that clock, behind the fetch
+    otherwise; the core starts it on + 6 at the earliest. "No fetch there" and "7 held at the
+    start" are the same states by the queue's own rules; it is not a wait for bytes. MOV
+    [d16],reg by ModR/M: the core exact. MOV byte [d16],imm8 runs on silicon as the ModR/M
+    store cycle for cycle (write due on + 6); the core's routine is on silicon's clock in 47
+    of 102 windows, 2 to 3 clocks late at no waits; every prelude SFR store is this form.
+  - **Timer handler loop (diagnosis of periph f4_tb / f4_tm on the rebuild, no socket run):**
+    silicon's take-to-take is K + 16m with K = 151; the 1,024-clock count-out walks +7 a
+    period in the 16-clock window, hence 1031 / 1015. After RETI silicon makes five refetches
+    whatever the return address's parity; the core dropped the fifth at an even return
+    address (the HALT stop cancelling a fetch on the clock HALT's opcode is popped).

@@ -142,6 +142,8 @@ def emit_ops(a, ops, meta=None):
             a.op([0x36, 0xFE, 0x0E, op[1] & 0xFF, op[1] >> 8], f"DEC byte SS:[{op[1]:04X}h]")
         elif k == "ret":
             a.op([0xC3], "RET")
+        elif k == "rawb":               # (passage.py's eighth set) bytes as a tuple: a handler's key must hash
+            a.op(list(op[1]), op[2])
         else:
             raise ValueError(op)
 
