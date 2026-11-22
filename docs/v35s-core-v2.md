@@ -4147,3 +4147,24 @@ HALT-stop fix):**
     10 dead clocks; no fetch into a taking boundary (needs a port); NMI's unexplained rows;
     f4_tout's tout_os (823 against 855); the take lattice gate is still 0 of 27 (the core's
     prefixed and immediate stores run long).
+
+**2026-11-22, passage probe, eleventh set (`validation/v35s/passage.py`, 163 programs, two
+sessions, every program EQUAL):** measurement only. **The in-service round's level-0 clock is
+  2 scan clocks after the entry's acknowledge of the interrupt controller; in a vectored
+  entry that is 8 clocks before the start of the take's vector read.** Waits on the vector,
+  stack and code block (0 to 4) move the vector read's end, the pushes and the handler's
+  first fetch by up to 12 clocks and the count by nothing (120 of 120 rows); the take's
+  boundary kind (INC, NOP, MULU, store, HALT) moves it by nothing: the phase is set at the
+  entry, not carried from the slot. By entry: a controller request and NMI (with or without
+  a level in service) restart the scan there; BRK does not; the INT pin's entry does not at
+  its vector read; a register-bank-switching entry (no vector read) has it one clock
+  earlier against the interrupted code's last fetch. The request flag's clear is near the
+  same clock: TM0's next count-out is lost with its TOUT edge 6.5 clocks or more before the
+  vector read and kept from 5.5, where the core loses up to 16.97 and keeps from 15.97: the
+  core's acknowledge (15 clocks before the vector read) is 10 to 12 clocks earlier than
+  silicon's. passage3's dropped entry at boundary + 10 is the same clock. The landed core's
+  in-service phase follows EI instead (level 0 at the vector read less 6, 7, 2, 2, 8, 2, 8
+  over the frames) and NMI's entry does not restart its scan. Unexplained: INT's entry
+  leaves the count 3 clocks behind the handler's EI lattice (5 in six HALT-frame rows); the
+  bank entry's one clock. Not run: refresh / DMA / HOLD displacing the vector read, NMI or
+  BRK under waits, BRKV, macro service.

@@ -44,6 +44,10 @@ vector read is on the pins):
     pi_pP_j      (the eighth set) pe_h4 with SER0 at level P (0 .. 6) taken first and two independent sleds in its
             handler, s in front of FINT and d behind it: the scan's round with level P in service against the
             round behind FINT (build/overseer/passage8)
+    pl_ / pn_ / pq_ / pr_ / po_   (the eleventh set) what fixes the in-service round's phase against the take:
+            pi's frame with waits on the entry (pl), an entry of another kind in the handler (pn: BRK, NMI, INT)
+            or with nothing in service (pq), the register bank switching entry (pr), and the request flag's
+            clear against the next count-out (po) (build/overseer/passage11)
     pj_Y_wN      (the ninth set) no request: a lead that sets the queue's state, then Y (MOV [d16],AW / AL, MOV
             AW,[d16], MOV byte [d16],imm8, MOV [d16],AW by ModR/M) at N waits in block 0: the routine's clock of
             the data cycle (build/overseer/pace2)
@@ -2092,6 +2096,254 @@ def pd_rows(name, backend, progs):
         print(line)
 
 
+# ------------------------------------------------------------------ the eleventh set (f5_pl / pn / pq / pr / po)
+# What fixes the in-service round's phase against the take (build/overseer/passage11). Read by
+# build/overseer/passage11/logs/p11.py (sum, saw, rows, po, pot).
+#   pl_CFG_pP_j f5_pi's frame (SER0 at level P taken first; s, FINT, d, RETI) with the entry stretched: block 0
+#               (the vector table, the stack, the handler, the interrupted code) at w0 waits (w1, w2; r: field 3
+#               and READY, --ready 48 / 80) until the handler's first instruction puts WTC back (the instrument
+#               then runs as f5_pi's); tK: K in front of the INC train (the take at another kind of boundary)
+#   pn_K_j      SER0 at level 3 in service; in its handler an entry of another kind between the sled s and FINT:
+#               brk (BRK 3 ; the BRK's handler FINT ; d ; a RETI frame raising IE), nmi / int (HALT in the
+#               handler, the pin's edge swept a clock a row), ints (INT standing at the handler's EI), and the
+#               controls ei / ei2 (EI ; NOP [; NOP] ; DI in front of FINT) and reti (a RETI frame raising IE)
+#   pq_K_j      nothing in service, IE 0, three levels pending: BRK 3 or NMI; the handler a sled and a RETI frame
+#   pr_M_pP_j   SER0 answered by register bank switching (bank: ENCS = 1) beside its vectored twin (vec)
+#   po_L        TM0 at level L, IE 0, a count-out pending, EI; the next count-out swept a clock a window across
+#               the take's entry: lost (one take) or kept (a second take): the flag's clear
+def _wtcw(v):
+    return ("rawb", (0x26, 0xC7, 0x06, 0xE8, 0xFF, v & 0xFF, v >> 8),
+            f"MOV word DS1:[FFE8h], {v:04X}h   ; the entry's waits off: from here as f5_pi's handler")
+
+
+PL_NX = dict(nop=24, mul=4, wr=8, halt=1)
+PL_LEAD = {("w1", 5): 10}                # (cfg, P): the lead sled where 6 puts EI's rise in a slot (pilot)
+PL_CFG = collections.OrderedDict(
+    [("w0", dict()), ("w1", dict(w0=1)), ("w2", dict(w0=2)), ("r", dict(w0=3))]
+    + [(f"t{k}", dict(kind=k)) for k in PL_NX]
+    + [(f"t{k}2", dict(kind=k, w0=2)) for k in ("halt", "wr")])
+
+
+PL_PS = dict(w0=(3, 5), w1=(3, 5), w2=(3, 5), r=(3, 5))     # the levels in service by configuration (default 3)
+
+
+def set_pl(P, cfg, ss=(0, 1)):
+    c = PL_CFG[cfg]
+    w0, kind = c.get("w0", 0), c.get("kind", "inc")
+    lead = PL_LEAD.get((cfg, P), 6)
+    st, pend, _ = PI_P[P]
+    out = []
+    for s in ss:
+        for d in range(PI_ND):
+            wi = (s & 1) << 4 | (d & 1) << 6
+            ops = (tuple(("st", PE_SRC[src], v) for src, v in zip(("se0", "se1", "p0", "tm0"), st))
+                   + (("sled", lead), ("mark", 1), ("ei",)) + ((("x", kind, PL_NX[kind]),) if kind != "inc" else ())
+                   + (("inc", 100),))
+            pre = (("raw", [0xBF, 0x00, 0x60], "MOV IY, 6000h"),) + ((("raw", [0x90], "NOP   ; the body's parity"),) if P < 3 else ())
+            out.append(window("pl", len(out), ops, pre=pre, odd=0, wt=wi | w0, hand={"se0": (_wtcw(wi),) + PI_H},
+                              ix=0x4000, cw=(1 + d // 2) << 8 | (1 + s // 2), P=P, s=s, d=d, pend=pend, w0=w0,
+                              kind=kind, cfg=cfg, lead=lead))
+    return out
+
+
+PN_P = 3
+_rb = lambda bs, t: ("rawb", tuple(bs), t)          # noqa: E731
+PN_S = (_rb((0x8E, 0xDE), "MOV DS0, IX   ; 4000h: block 2"),
+        _rb((0x8A, 0x27), "MOV AH, [BW]   ; block 2: the sled s's odd clock is its wait"),
+        _rb((0xD3, 0xC5), "ROL BP, CL   ; 1 + s // 2"),
+        _rb((0x8E, 0xDF), "MOV DS0, IY   ; 6000h: block 3"),
+        _rb((0x86, 0xE9), "XCHG CH, CL"))
+PN_I = (("fint",),
+        _rb((0x8A, 0x27), "MOV AH, [BW]   ; block 3: the sled d's odd clock is its wait"),
+        _rb((0xD3, 0xC5), "ROL BP, CL   ; 1 + d // 2"))
+_halt = (_rb((0xF4,), "HALT"), ("nop", 12))
+PN_H = {
+    # kind: (SER0's handler, {vector: the entry's handler})
+    "brk": (PN_S + (_rb((0xCC,), "BRK 3"), ("reti",)),
+            {"brk": PN_I + (("retih", 0xF202), ("inc", 12), ("reti",))}),
+    "nmi": (PN_S + _halt + (("reti",),),
+            {"nmi": PN_I + (("retih", 0xF202), ("inc", 12), ("reti",))}),
+    "int": (PN_S + (("ei",),) + _halt + (("di",), ("reti",)),
+            {"int": PN_I + (("reti",),)}),
+    "ints": (PN_S + (("ei",), ("nop", 12), ("di",), ("reti",)),
+             {"int": PN_I + (("reti",),)}),
+    "ei": (PN_S + (("ei",), ("nop", 1), ("di",)) + PN_I + (("reti",),), {}),
+    "reti": (PN_S + (("retih", 0xF202), ("nop", 1), ("di",)) + PN_I + (("reti",),), {}),
+    "ei2": (PN_S + (("ei",), ("nop", 2), ("di",)) + PN_I + (("reti",),), {}),      # DI one NOP later
+}
+PN_DLY = dict(nmi=270, int=275, ints=170)     # the edge's delay after the event's record, clocks, at x = 0 (pilot)
+PN_NX = 8
+PN_ROWS = dict(int=16, ei2=4)
+
+
+def set_pn(kind, rows):
+    """rows: the swept values (brk, ei, ei2, reti, ints: the sled s; nmi, int: the edge's delay x in clocks
+    behind PN_DLY, s = 0)."""
+    st, pend, _ = PI_P[PN_P]
+    hs, hx = PN_H[kind]
+    out, ent = [], []
+    for r in rows:
+        s, x = (r, 0) if kind in ("brk", "ei", "reti", "ints", "ei2") else (0, r)
+        for d in range(PI_ND):
+            j = len(out) + 1
+            ops = ((("ev", j),) if kind in PN_DLY else ()) \
+                + (tuple(("st", PE_SRC[src], v) for src, v in zip(("se0", "se1", "p0", "tm0"), st))
+                   + (("sled", 6), ("mark", 1), ("ei",), ("inc", 100)))
+            pre = (("raw", [0xBF, 0x00, 0x60], "MOV IY, 6000h"),)
+            out.append(window("pn", len(out), ops, pre=pre, odd=0, wt=(s & 1) << 4 | (d & 1) << 6,
+                              hand=dict(hx, se0=hs), ix=0x4000, cw=(1 + d // 2) << 8 | (1 + s // 2), P=PN_P, s=s,
+                              d=d, dx=x, pend=pend, kind=kind))
+            if kind == "nmi":
+                ent.append(dict(event=j, delay=(PN_DLY[kind] + x) * 32 - 4, hold=600, levels={"NMI": 0}))
+            elif kind in ("int", "ints"):
+                ent.append(ent_int(j, PN_DLY[kind] + x))
+    return out, ent
+
+
+PQ_H = (_rb((0x8E, 0xDF), "MOV DS0, IY   ; 6000h: block 3"),
+        _rb((0x8A, 0x27), "MOV AH, [BW]   ; block 3: the sled d's odd clock is its wait"),
+        _rb((0xD3, 0xC5), "ROL BP, CL   ; 1 + d // 2"),
+        ("retih", 0xF202), ("inc", 12), ("reti",))
+PQ_ST = (0x47, 0x87, 0x85, 0x86)        # nothing in service: SER1 7, INTP0 5, TM0 6 pending (the round 22), IE 0
+PQ_DLY = 60                             # the NMI edge after the event's record, clocks, at x = 0
+
+
+def set_pq(kind, rows):
+    """Nothing in service, IE 0, three levels pending (stored: the last store restarts the scan), mark 1, then
+    an entry: brk (BRK 3 behind a lead sled of x clocks) or nmi (the pin's edge x clocks later a row, an INC
+    train). The entry's handler: a read (R), the sled d, a RETI frame raising IE, INC x 12, RETI."""
+    out, ent = [], []
+    pend = {"se1": 7, "p0": 5, "tm0": 6}
+    for x in rows:
+        for d in range(PI_ND):
+            j = len(out) + 1
+            st = tuple(("st", PE_SRC[src], v) for src, v in zip(("se0", "se1", "p0", "tm0"), PQ_ST))
+            if kind == "brk":
+                ops = st + (("mark", 1), ("sled", x), ("x", "brk", 1), ("inc", 12))
+            else:
+                ops = (("ev", j),) + st + (("mark", 1), ("inc", 100))
+                ent.append(dict(event=j, delay=(PQ_DLY + x) * 32 - 4, hold=600, levels={"NMI": 0}))
+            pre = (("raw", [0xBF, 0x00, 0x60], "MOV IY, 6000h"),)
+            out.append(window("pq", len(out), ops, pre=pre, odd=x & 1 if kind == "brk" else 0, wt=(d & 1) << 6,
+                              hand={kind: PQ_H}, cw=1 + d // 2, P=None, s=0, d=d, dx=x, pend=pend, kind=kind))
+    return out, ent
+
+
+PR_SP = 0x0EC0                          # bank P's stack (SS 0): the frames of the takes inside its handler
+PR_SLOT = dict(VPC=0x02, DS0=0x08, SS=0x0A, PS=0x0C, DS1=0x0E, IY=0x10, IX=0x12, BP=0x14, SP=0x16, BW=0x18, CW=0x1C)
+
+
+def set_pr(P, bank, ss):
+    """f5_pi's frame with SER0 answered by register bank switching (bank: ENCS = 1; the handler runs in bank
+    P, entered at its vector PC with no vector read and no push) or vectored (the twin). The handler in both:
+    pi's to the sled d, then a RETI frame raising IE (the bank's own RB in its PSW), INC x 12, RETRBI / RETI."""
+    st, pend, _ = PI_P[P]
+    psw = 0x8202 | P << 12 if bank else 0xF202
+    h = PI_H[:-1] + (("retih", psw), ("inc", 12),
+                     ("rawb", (0x0F, 0x91), "RETRBI") if bank else ("reti",))
+    out = []
+    for s in ss:
+        for d in range(PI_ND):
+            st0 = (st[0] | 0x10 if bank else st[0],) + tuple(st[1:])
+            cw = (1 + d // 2) << 8 | (1 + s // 2)
+            ops = (tuple(("st", PE_SRC[src], v) for src, v in zip(("se0", "se1", "p0", "tm0"), st0))
+                   + (("sled", 6), ("mark", 1), ("ei",), ("inc", 100)))
+            pre = (("raw", [0xBF, 0x00, 0x60], "MOV IY, 6000h"),)
+            win = window("pr", len(out), ops, pre=pre, odd=0, wt=(s & 1) << 4 | (d & 1) << 6, hand={"se0": h},
+                         ix=0x4000, cw=cw, P=P, s=s, d=d, pend=pend, bank=int(bank), kind="bank" if bank else "vec")
+
+            def setup(a, s0=win.setup, win=win, cw=cw):
+                s0(a)
+                if win.meta["bank"]:
+                    vals = dict(VPC=win.addr[win.hand["se0"]], DS0=0x4000, SS=0, PS=0, DS1=oc.ON, IY=0x6000,
+                                IX=0x4000, BP=0, SP=PR_SP, BW=la.BWV, CW=cw)
+                    for k, v in vals.items():
+                        oc.es_store(a, 0xFE00 + 0x20 * win.meta["P"] + PR_SLOT[k], v, word=True)
+                    a.mov_r("AW", 1)
+            win.setup = setup
+            out.append(win)
+    return out
+
+
+PO_MD, PO_FIL, PO_NX = 24, 10, 48       # MD0 (150 clocks a count-out), the fillers, the windows
+
+
+def set_po(lv, n=PO_NX, x0=58):
+    """TM0 (level lv) started with IE 0, PO_FIL fillers and a sled of x0 + x clocks, mark 1, EI, an INC train;
+    the handler stops TM0, FINT, RETI. A count-out is pending at EI; the next one meets the take's entry."""
+    return [window("po", x, (START, ("fil", PO_FIL), ("sled", x0 + x), ("mark", 1), ("ei",), ("inc", 100)),
+                   odd=(x0 + x) & 1, md0=PO_MD, hand={"tm0": H_STOP}, ic={"tm0": lv}, lv=lv, dx=x0 + x)
+            for x in range(n)]
+
+
+def programs11():
+    progs = []
+
+    def add(name, wins, note, entries=None, intak=False, ready=False):
+        p = Program8(name, wins, note, init=init_r if ready else init, fini=oc.ports_off, pins=["P13", "P15"],
+                     entries=entries)
+        if intak:
+            p.stim["intak_vector"] = INT_VEC
+            p.stim["int_release"] = True
+        p.clk = 8
+        progs.append(p)
+
+    for cfg in PL_CFG:
+        for P in PL_PS.get(cfg, (3,)):
+            ss = list(PI_P[P][2])
+            for j in range(0, len(ss), 2):
+                part = tuple(ss[j:j + 2])
+                add(f"f5_pl_{cfg}_p{P}_{j // 2}", set_pl(P, cfg, part),
+                    f"f5_pi's frame, level {P} in service, sled s {part}, the entry stretched / moved: {PL_CFG[cfg]}",
+                    ready=cfg == "r")
+    for kind in PN_H:
+        step = 1 if kind in PN_DLY else 2           # the schedule holds 32 entries: one row a program with a pin
+        for j in range(0, PN_ROWS.get(kind, PN_NX), step):
+            rows = tuple(range(j, j + step))
+            wins, ent = set_pn(kind, rows)
+            add(f"f5_pn_{kind}_{j // step}", wins, f"level {PN_P} in service, an entry of kind {kind} in its handler in front of FINT: rows {rows}",
+                entries=ent or None, intak=kind in ("int", "ints"))
+    for kind in ("brk", "nmi"):
+        step = 1 if kind == "nmi" else 2
+        for j in range(0, PN_NX, step):
+            rows = tuple(range(j, j + step))
+            wins, ent = set_pq(kind, rows)
+            add(f"f5_pq_{kind}_{j // step}", wins, f"nothing in service, IE 0, three levels pending: an entry of kind {kind}, rows {rows}",
+                entries=ent or None)
+    for P in (3, 5):
+        ss = list(PI_P[P][2])
+        for bank in (1, 0):
+            for j in range(0, len(ss), 2):
+                part = tuple(ss[j:j + 2])
+                add(f"f5_pr_{'bank' if bank else 'vec'}_p{P}_{j // 2}", set_pr(P, bank, part),
+                    f"SER0 at level {P} answered by {'register bank switching' if bank else 'a vectored entry (the twin)'}: sled s {part}")
+    for lv in (3, 0, 6):
+        add(f"f5_po_{lv}", set_po(lv), f"TM0 at level {lv}: the second count-out swept across the first take's entry")
+    return {p.name: p for p in progs}
+
+
+def events11(rec, prog):
+    """events5 with bus (every record of the window: (kind, row)), rs / r (the two sleds' reads), pins (the
+    recorded pins' edges)."""
+    wins, _ = oc.windows(rec, prog)
+    ev = events5(rec, prog)
+    for k, e in ev.items():
+        rows = wins[k]["rows"]
+        e["bus"] = rows
+        e["rs"] = next((r[0] for kind, r in rows if kind == "mr" and r[1] == PI_RS), None)
+        e["r"] = next((r[0] for kind, r in rows if kind == "mr" and r[1] == PI_R), None)
+        e["pins"] = [(r[0], r[1], r[2]) for kind, r in rows if kind == "pin"]
+    return ev
+
+
+def allprogs():
+    progs = programs()
+    for f in (programs2, programs3, programs4, programs5, programs6, programs7, programs8, programs9, programs10,
+              programs11):
+        progs.update(f())
+    return progs
+
+
 def emit(progs):
     for name, p in progs.items():
         (ph.PROGRAMS_DIR / f"{name}.s").write_text(p.source())
@@ -2128,16 +2380,7 @@ def main():
             harness.debug.write16(0x0A, 0)          # the hold back to none before the board is released
             close_(transport, harness)
         traps._close_board = close
-    progs = programs()
-    progs.update(programs2())
-    progs.update(programs3())
-    progs.update(programs4())
-    progs.update(programs5())
-    progs.update(programs6())
-    progs.update(programs7())
-    progs.update(programs8())
-    progs.update(programs9())
-    progs.update(programs10())
+    progs = allprogs()
     names = []
     for n in a.names or list(progs):
         names += [x for x in progs if x == n or x == "f5_pa_" + n] or [x for x in progs if x.startswith("f5_pa_" + n) or x.startswith("f5_" + n)]

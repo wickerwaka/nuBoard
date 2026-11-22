@@ -1,0 +1,184 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 2,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 3,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 4,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 5,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 6,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 7,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 8,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 9,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 10,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 11,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 12,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 13,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 14,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 15,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 16,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 17,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 18,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 19,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 20,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 21,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 22,
+   "delay": 8668,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  }
+ ],
+ "pins": [
+  "P13",
+  "P15"
+ ]
+}

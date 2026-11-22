@@ -144,6 +144,13 @@ def emit_ops(a, ops, meta=None):
             a.op([0xC3], "RET")
         elif k == "rawb":               # (passage.py's eighth set) bytes as a tuple: a handler's key must hash
             a.op(list(op[1]), op[2])
+        elif k == "retih":              # (passage.py's eleventh set) a RETI frame in a handler: PSW v / PS / the
+            a.mov_r("AW", op[1])        # next offset pushed, RETI (IE raised by a PSW word's read)
+            a.op([0x50], "PUSH AW")
+            a.op([0x0E], "PUSH PS")
+            a.mov_r("AW", a.here() + 3 + 1 + 1)
+            a.op([0x50], "PUSH AW")
+            a.op([0xCF], "RETI")
         else:
             raise ValueError(op)
 
