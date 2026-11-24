@@ -4345,3 +4345,20 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   344; f5_wv_r 84 / 84; f5_pj 756 of 756; corpus subset 8,070 runs unchanged. ROM 1,932 to
   1,953 words. Open: RETI, POP R, RET far, CMPBK, MOVBK single; PUSH R's gap; CALL's and
   BRK's pushes.
+- **2026-11-24, work order 45 landed (microcode only; gate build/overseer/land45 against
+  land43).** Three of the four RAMEN 1 one-clock differences of the third store set. CALL far
+  and JMP far: the seventh word counts as a request word (the code of the memory request
+  word), so the fetch the offset's release started is not followed by a five-held
+  continuation in front of the segment word; f5_wu CALL far 8 of 8. MOV byte [IX+d8],imm8: a
+  body `st_imm8_d8` in the shape of the word form's, write on S + 6 and the fetch on S + 3,
+  8 of 8. BRKV taken: the jump enters BRK 3's first word (one taken micro-jump more), 7 of
+  8. Corpus RTL-exact 30,181 to 30,197 of 30,536 at both spacings, lost 0, gained 16 (F35
+  +8, F40 +8, far JMP / CALL at 0 waits); f5_wu at RAMEN 1 570 to 588 of 592; every program
+  set's line as land43; timing +2.994 / +3.284 / +2.565 ns; 9,697 LUT4, 2,659 FF, 36 RAM_5K;
+  no port, no budget change. Open: BRKV window 84 (a fetch started on S; silicon has the
+  wait and one clock more) and behind full-queue leads; PREPARE not built, no mechanism; the
+  far forms' request word also waits while a fetch has two clocks or more left, which no
+  corpus run exercises; in the passage programs' unscored prelude the far jump is on
+  silicon's clocks but the discarded fetch on the flush clock is issued at 1016Eh for
+  silicon's 0016Eh (PS written two words before the FLUSH); F35 CALL far ; RET far imm (2
+  runs) now first differ at RET far imm's stack read, 2 clocks early.
