@@ -38,6 +38,7 @@ CODE, STACK_TOP, HANDLER = oc.CODE, oc.STACK_TOP, ph.HANDLER
 SRC, DST, DIR, BWV, FOL = 0x0800, 0x0900, 0x0810, 0x0880, 0x0890
 PRCV = {1: 0x4E, 0: 0x0E}
 CLK = 32
+PFX = "f5_wt"
 
 _FIL = ("fil",)
 _NOP = ([0x90], "NOP   ; lead")
@@ -225,7 +226,7 @@ def windows(rec, prog):
         if kind == "iow" and row[1] == oc.M_BEGIN:
             cur = dict(k=row[2], t0=row[0], rows=[])
             continue
-        if kind == "iow" and row[1] == oc.M_END and cur is not None:
+        if kind == "iow" and oc.M_END <= row[1] <= oc.M_END + 0x20 and cur is not None:   # (above M_END: wstore3's POP R restores DW)
             cur["T"] = (row[0] - cur["t0"]) / CLK
             out[cur["k"]] = cur
             cur = None

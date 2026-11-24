@@ -4245,3 +4245,25 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   last clock; a request posted during a write starting no earlier than L + 3 at waits. Not
   run: 3 waits / READY, CALL far / reg / mem, RET, POP R, PREPARE, pin interrupts, PUSH PSW /
   sreg / imm, block I/O, REP compares. Not built.
+- **2026-11-23, RAMEN 0, third set (validation/v35s/wstore3.py, f5_wu_*, 10 programs, 592
+  windows per setting, two power-ups equal).** No single mechanism. What orders most of the
+  data: at RAMEN 1 the microprogram runs each data access to its end before going on; at
+  RAMEN 0 it goes on while the access runs and stops only where it needs the datum. A step
+  behind a write is 3 clocks earlier at 0 waits and 4 at 1 wait (the cycle's length), also
+  for PUSH R, PREPARE, PUSH PSW / sreg / imm. A read whose datum the next step does not need
+  lets the next read come as much earlier: RETI's and POP R's reads 6 apart for 9, RET far's
+  second read 3 earlier (8 of 8 each). A read whose datum is the result is unchanged (MOV
+  r,m, POP r / PSW / sreg, RET, RET imm, DISPOSE, LDM, ADD r,m, CMP r,m, TEST, CMPM). SFR
+  and FFE40h targets behave as the same routine on external memory. Separate effects: (a)
+  the request word reserves nothing, so a fetch slips in front of the write; (b) the next
+  request starts no earlier than L + 3 behind a write and L + 4 behind a read (RETI and POP
+  R sit on the read bound); (c) a compare that stores nothing (CMP m,r, CMP m,imm) ends 2
+  clocks earlier at any wait count, to CMP r,m's length. Unexplained: MOV m,imm keeps
+  RAMEN 1's clocks in all eight EA forms (64 of 64) though ADD m,imm and CMP m,imm change;
+  CALL's push is later (near +3 with the length unchanged; register and memory +2; far +1
+  and 0) on an idle bus, and BRK's pushes +1, +1, +2; MOVBK / CMPBK's second cycle is 8
+  clocks after the read's start at 0 and 1 wait and 9 at 2 (RAMEN 1: 9 / 10 / 11); the first
+  read is a clock later in RETI and REPNE CMPM. Core defects found at RAMEN 1, one clock
+  each (570 of 592 equal): BRKV 8 of 8, MOV byte [IX+d8],imm8 8 of 8, CALL far 3, PREPARE 3.
+  Not run: pin interrupt or NMI entry, 2 waits and READY, block I/O, bit / BCD forms on
+  memory, DMA. Not built.
