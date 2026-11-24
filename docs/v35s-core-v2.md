@@ -4204,3 +4204,20 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   Work order 42's trial routine (posting on S+4) gives 0 of 246 windows and is dropped. The
   strict wait rests on one lead (PUSH, odd alignment). Not run: a prefixed external form,
   reg fields other than 0, an SFR target, 3 waits / READY.
+- **2026-11-23, store timing with internal RAM disabled (validation/v35s/wstore.py, f5_ws_*,
+  9 programs, two power-ups equal).** Prompted by the M90 project's figures (the core about
+  2 clocks slower per write than an M90 board's V35 at PRC 0Ch). On our socket, 16
+  back-to-back copies of each form at 0 waits, refresh off, both alignments. With PRC bit 6
+  (RAMEN) set (4Eh, 4Ch) the core at 9ec59bf equals silicon in 55 of 55 whole windows. With
+  it clear (0Eh, 0Ch) silicon's stores are 2 to 3 clocks shorter and the core is unchanged:
+  16 of 67 windows equal (the reads and `MOV word [si],imm16`). Steady clocks per operation,
+  RAMEN 1 / RAMEN 0: mov [si],ax 8 / 6; push ax 9 / 6.5; stosw, stosb 13.5 / 11.5;
+  mov [si+2],ax and A3 9 / 7.5; mov [d16],dx 9 / 9 (bus-bound already); mov word [si],imm16
+  10 / 10; rep stosw, stosb 9 / 7 an element; rep movsw 18 / 13; reads unchanged. The
+  divider bits do nothing to these. From the pins at RAMEN 0: the routine no longer waits
+  for the write's end (the next instruction starts on the write's first or second clock
+  where RAMEN 1 gives the third after it), stores become bus-bound, and the fetch ahead of
+  the first write is no longer held back. In the core `prc[6]` reaches only the on-chip
+  address decode. No single rule derived: stosw saves 2 where push saves 3; why the C7 form
+  is untouched is untested. Run only at 0 waits, even data addresses, external memory.
+  Not built.
