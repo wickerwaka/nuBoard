@@ -4404,3 +4404,19 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   word count OPEN; codes fa / p1 / p0 allowed; one access-wait signal useq to eu, the pair
   ceiling 3 to 4, useq out 23 to 24, eu in 38 to 39; the 2-wait residue (BRK's third push,
   PREPARE 8,1, CALL near / far one window each) recorded open, not chased.
+- **2026-11-24, RAMEN design, fourth round (build/overseer/ramen-design4/DESIGN4.md; no
+  socket use).** Trial on the third round's tree, not landed. REP STM and REP MOVBK on one
+  body in both modes, the second bodies and the mode branch gone: the write a late post,
+  the request word's wait for the EU's own write (L + 4 at waits), the count's test on the
+  RAMEN 1 post word, REP MOVBK's read an access wait; the exit F, a word, a bus-idle word,
+  five words, E (at RAMEN 1 the bus-idle word replaces a word with no act; no window or
+  corpus run exercises its wait). REPNE CMPMW 8 of 8 (the first read a late post with an
+  access wait); REPNE CMPBKW 8 of 8 with the loop reworded at its RAMEN 1 clocks and the
+  pointer and count steps reordered (function bench not run in the trial). BRK's third push
+  at 2 waits 20 of 20: the RAMEN 1 post word still waits for the request slot when it posts
+  nothing at RAMEN 0. Trial RAMEN 1 / RAMEN 0: f5_wt 676 / 660 of 676; f5_wu 588 / 577 of
+  592; group c 186 / 169 of 188; group d 59 / 59 of 72; the rest whole. ROM 1,976 to 1,961
+  words. Open: PUSH sreg (a fetch one clock in front of the early end's E, 3 windows), PREPARE
+  8,1 at waits, CALL near / far behind a store lead at 2 waits (one window each), no data
+  for a REP compare ending on its condition or at waits; section 5 lists the word counts
+  read from the pins.
