@@ -4327,3 +4327,21 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   with no mechanism (CALL forms 0 of 52, BRK 0 of 36); the read side (POP R, RETI, RET far,
   MOVBK, CMPBK) designed, not trialled; one gap in PUSH R; XCH mem and memory shifts need a
   second mark. The design needs prc[6] in v35_useq and v35_eu.
+- **2026-11-24, RAMEN delta design (build/overseer/ramen-design2/DELTA.md; f5_wv_r_*, 84
+  windows a setting, two captures equal, the core exact on its RAMEN 1 half).** Trial on top
+  of the first, not landed. REP STM at RAMEN 0 is a second body entered by one conditional
+  jump on RAMEN on a head word with no act: the count's test stands in front of the write
+  (first write a clock later, 7 words an element); the index write-back word is bus-idle and
+  waits for the previous write through its last clock (L + 4 at waits); the exit is two
+  clocks shorter. Why silicon tests the count in front of the write at RAMEN 0 is not
+  explained; three one-rule derivations from the RAMEN 1 body fail on counted windows. REP
+  MOVBK likewise a second body: four words under the read, F on the word that takes the
+  datum, then the count test and the post. The fetch-chain mark `ych` (a request word
+  executed inside the fetch chain) belongs to the instruction and the boundary clears it:
+  one term, no RAMEN term in the bus unit; at RAMEN 1 no boundary falls between a request
+  word and its grant so it never acts; at RAMEN 0 it gives the pair `26 89 07 ; 26 89 57 02`
+  64 of 64 (40) and the PRC-flip windows 24 of 24 (20). Trial scores RAMEN 1 / RAMEN 0:
+  f5_ws 55 / 67 of 67; f5_wt 676 / 596 of 676; f5_wu 570 / 403 of 592; f5_wv 344 / 344 of
+  344; f5_wv_r 84 / 84; f5_pj 756 of 756; corpus subset 8,070 runs unchanged. ROM 1,932 to
+  1,953 words. Open: RETI, POP R, RET far, CMPBK, MOVBK single; PUSH R's gap; CALL's and
+  BRK's pushes.

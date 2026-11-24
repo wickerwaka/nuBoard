@@ -15,6 +15,8 @@ Groups (programs f5_wv_<group>_r1 / _r0):
             byte [IX] with IX odd) behind four leads, followed by MOV AW,[0890h] ; INC AW x 6; and four plain stores
             (MOV [IX],AW ; PUSH AW ; A3 ; MOV [IX],AL) followed by short instructions instead of the read (INC AW
             x 7; NOP x 3 ; INC x 4; MOV CW,AW x 2 ; INC x 4; the store again ; INC x 6) behind two leads
+    r       REP STMW with CW 1, 2, 5, REP STMB with CW 3, REP MOVBKW with CW 1, 3 and REP MOVBKB with CW 3, code,
+            stack and data in block 0 at 0, 1 and 2 waits, two leads, followed by MOV AW,[0890h] ; INC AW x 6
     y0, ya, yb, yc
             the data in block 1 (20100h up, WTC field 3: 2 waits and READY, PMC1 bit 7), the code and the stack in
             block 0 at 0 waits or 1 wait; READY low from a block-1 cycle's /MREQ fall for 0 (y0: READY stays
@@ -57,6 +59,14 @@ YS = {
     "pu": ([0x50], "PUSH AW", {}),
     "a3": ([0xA3] + D, f"MOV [{DIR:04X}h], AW   ; A3", {}),
     "sb": ([0x88, 0x04], "MOV [IX], AL", {}),
+    # group r: the REP string stores by count
+    "rs1": ([0xF3, 0xAB], "REP STMW   ; CW 1", {"cw": 1}),
+    "rs2": ([0xF3, 0xAB], "REP STMW   ; CW 2", {"cw": 2}),
+    "rs5": ([0xF3, 0xAB], "REP STMW   ; CW 5", {"cw": 5}),
+    "rb3": ([0xF3, 0xAA], "REP STMB   ; CW 3", {"cw": 3}),
+    "rm1": ([0xF3, 0xA5], "REP MOVBKW   ; CW 1", {"cw": 1}),
+    "rm3": ([0xF3, 0xA5], "REP MOVBKW   ; CW 3", {"cw": 3}),
+    "rv3": ([0xF3, 0xA4], "REP MOVBKB   ; CW 3", {"cw": 3}),
 }
 INC = ([0x40], "INC AW")
 FOLS = {
@@ -99,20 +109,24 @@ def _lead(a, lead, al, ins):
             a.op(x[0], x[1])
 
 
-def bwindow(y, lead, al, r, fol):
+R_WINS = [(y, l, al, "rd", w) for y in ("rs1", "rs2", "rs5", "rb3", "rm1", "rm3", "rv3") for w in (0, 1, 2)
+          for l in ("f0", "j0") for al in (0, 1)]
+
+
+def bwindow(y, lead, al, r, fol, w=0):
     yb, yt, opt = YS[y]
-    meta = dict(y=f"{y}.{fol}" if fol != "rd" else y, lead=lead, al=al, r=r, w=0, sp=None)
+    meta = dict(y=f"{y}.{fol}" if fol != "rd" else y, lead=lead, al=al, r=r, w=w, sp=None)
 
     def setup(a):
         oc.seg(a, "DS1", oc.ON)
         oc.es_store(a, 0xFFEB, PRCV[r])
-        oc.es_store(a, 0xFFE8, 0, word=True)
+        oc.es_store(a, 0xFFE8, w, word=True)
         oc.seg(a, "DS1", 0)
         a.mov_r("SP", STACK_TOP)
         a.mov_r("IX", opt.get("ix", SRC))
         a.mov_r("IY", opt.get("iy", DST))
         a.mov_r("BW", BWV)
-        a.mov_r("CW", 1)
+        a.mov_r("CW", opt.get("cw", 1))
         a.op([0xFC], "CLR1 DIR")
 
     def body(a):
@@ -191,6 +205,10 @@ def programs():
         name = f"{PFX}_b_r{r}"
         progs[name] = Program(name, [bwindow(y, l, al, r, f) for y, l, al, f in B_WINS],
                               f"group b: byte stores at odd addresses and short followers with PRC = {PRCV[r]:02X}h")
+    for r in (1, 0):
+        name = f"{PFX}_r_r{r}"
+        progs[name] = Program(name, [bwindow(y, l, al, r, f, w) for y, l, al, f, w in R_WINS],
+                              f"group r: REP STM / REP MOVBK by count, block 0 at 0, 1 and 2 waits, with PRC = {PRCV[r]:02X}h")
     for g, hold in READY.items():
         for r in (1, 0):
             name = f"{PFX}_{g}_r{r}"
@@ -275,7 +293,7 @@ def main():
     elif a.action == "sim":
         run_set(names, "sim", a.tag, progs)
     elif a.action == "pair":
-        for g in a.names or ["b"] + list(READY):
+        for g in a.names or ["b", "r"] + list(READY):
             pair(g, a.ref + a.tag, progs)
     elif a.action in ("repeat", "gate"):
         ref, cand = ("socket", "socket-2") if a.action == "repeat" else (a.ref, a.cand)
