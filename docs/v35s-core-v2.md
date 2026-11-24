@@ -4299,3 +4299,31 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   on silicon sits where RAMEN 1's F ended; nothing explains it. Not built: the read side
   (POP R, RETI), CMP m,r's fixed word, F on W (needs prc[6] in the EU, a port). User ruling:
   a design study of the store tails before any rebuild.
+- **2026-11-24, RAMEN design study and fourth store set (build/overseer/ramen-design/DESIGN.md;
+  validation/v35s/wstore4.py, f5_wv_*, 10 programs, 344 windows a setting, two power-ups
+  equal; the core at a7cbcf1 is exact on all 344 at RAMEN 1).** Picture: the routine's
+  address, datum and post sit on the same clocks in both modes; the routine's end moves. At
+  RAMEN 0 the next opcode's pop (E) and the dispatch ride on the routine's last two words
+  and the post word is the dispatch word (as OUT's write is in the core), so the next
+  instruction starts on the write's first clock. At RAMEN 1 E and the dispatch are two words
+  of their own behind the post, the boundary then meets the running write, and F behind a
+  write waits its length: RAMEN 1 = RAMEN 0 + the end hold (2 clocks) + the boundary's wait
+  on the write (1 + waits) + the F wait. Falling out of it: the fetch in front of the write
+  (the earlier E frees queue room; no reservation change); CMP m,r's 2 clocks (the end hold
+  with no write); MOV m,imm unchanged (its last word takes the immediate from the queue on
+  the write's first clock, so the end cannot overlap); on-chip targets. An internal-RAM
+  access at RAMEN 1 costs what a 0-wait external one does, so a decode step is not the
+  cause. Trial (worktree, not landed; a mark on the word in front of the post, F's wait
+  behind a write at RAMEN 1 only, the request slot freeing a clock later behind a write,
+  the segment prefix standing through the early dispatch; about 30 routines marked, ROM
+  1,922 to 1,932 words), whole windows RAMEN 1 / RAMEN 0, base to trial: f5_ws 55 to 55 /
+  19 to 61 of 67; f5_wt 664 to 674 / 208 to 578 of 676; f5_wu 570 to 570 / 184 to 395 of
+  592; f5_wv 344 to 344 / 12 to 256 of 344; nothing lost; corpus subset of 7,158 runs
+  unchanged. At RAMEN 0 the trial is exact on word writes at 0 waits, word writes at 2
+  waits with READY held 0 / 10 / 15 / 18.5 clocks (96 of 96), byte writes at even and odd
+  addresses (56 of 56); the pair `26 89 07 ; 26 89 57 02` 40 of 64 (the fetch-chain rule
+  fitted at RAMEN 1); REP STMW and REP MOVBKW 0 of 32 each (silicon's REP STM element is
+  max(W + 7, L + 4); the trial one clock short). Open: CALL near's push on Y + 7 for Y + 4
+  with no mechanism (CALL forms 0 of 52, BRK 0 of 36); the read side (POP R, RETI, RET far,
+  MOVBK, CMPBK) designed, not trialled; one gap in PUSH R; XCH mem and memory shifts need a
+  second mark. The design needs prc[6] in v35_useq and v35_eu.
