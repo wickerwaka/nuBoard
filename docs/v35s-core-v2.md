@@ -4285,3 +4285,17 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   argument; found on the M90 DE10 build). Gate (land43 against land42): every line of
   verify.out identical, pin records 0 differ; timing +2.640 / +2.980 / +2.959; 9,639 LUT4,
   2,659 FF.
+- **2026-11-24, RAMEN 0 experiment build (work order 44, not landed; build/overseer/wo44/).**
+  Bus unit only, gated on `ramen`, behaviour at RAMEN 1 unchanged window for window: the
+  EU's wait for its own memory cycle ends at the hand-over instead of the cycle's end, the
+  dispatch word no longer waits for that cycle, and the `rh` reservation is dropped. It
+  recovers about one of the three clocks silicon saves a store at 0 waits (follower read +3
+  to +2 clocks off; +3 to +1 at 1 wait). The other two are the store routine's own E word
+  and dispatch word behind the post: silicon's next instruction starts on the write's first
+  clock, about two clocks before the core's post word, so no change of a wait reaches it.
+  MOV m,imm is singled out by the routines themselves: the C6 / C7 tails are the only
+  memory-write tails whose E word releases operand bytes (the datum comes from the
+  instruction stream), and silicon keeps RAMEN 1's hold and reservation there. CALL's push
+  on silicon sits where RAMEN 1's F ended; nothing explains it. Not built: the read side
+  (POP R, RETI), CMP m,r's fixed word, F on W (needs prc[6] in the EU, a port). User ruling:
+  a design study of the store tails before any rebuild.
