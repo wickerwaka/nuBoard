@@ -4221,3 +4221,27 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   address decode. No single rule derived: stosw saves 2 where push saves 3; why the C7 form
   is untouched is untested. Run only at 0 waits, even data addresses, external memory.
   Not built.
+- **2026-11-23, RAMEN 0 store rule probed (validation/v35s/wstore2.py, f5_wt_*, 12 programs,
+  676 windows per RAMEN setting as twins differing only in the PRC value, two power-ups
+  equal).** At RAMEN 1 the core at 0f31fc8 equals silicon in 664 of 664 windows that hold no
+  PRC store. With W the clock a write's pin cycle starts, L its last clock, P the posting
+  word and S' the next instruction's first word (S' = L + 1 at RAMEN 1), silicon at RAMEN 0
+  does, for plain stores: (A) the words in front of the post are unchanged, and the write
+  starts on P + 1 or after the last clock of a fetch covering P + 1 (328 of 328 windows, 23
+  single-write forms, 0 to 2 waits); (B) the announced request no longer holds the fetch
+  chain, so a fetch takes the slot and the write follows it (+1 at 0 waits, +2 and +3 at 1
+  and 2 waits); (C) the wait for the write's end is gone, S' = W, following the grant, not
+  the post; the saving stays 3 clocks a write at 1 and 2 waits. Holds for MOV m,r in every
+  EA form, PUSH r, STM, A3, RMW (read and read-to-write distance unchanged), XCH, PUSH mem,
+  POP mem, PUSH R, REP STM; an odd-address word counts C from its second cycle. Unchanged
+  (88 of 88): plain loads, POP r, LDM, ADD r,m, CMP r,m, TEST, IN, OUT, NOP. FFE40h at
+  RAMEN 0 is an ordinary external cycle. A store to PRC acts on the first store behind it,
+  in both directions. Not covered by the rule and without a mechanism: C6 / C7 immediate
+  stores ignore the bit (56 of 64 windows equal record for record); CALL near's push starts
+  3 clocks later with the rest on RAMEN 1's clocks; BRK / RETI are 10 clocks shorter (RETI's
+  reads 6 apart for 9); CMP mem,reg is 2 shorter and CMPBKW 3 with no write; MOVBKW's write
+  is 1 clock earlier against its read (2 at waits); an on-chip SFR store also gains the 3
+  clocks. Few windows: stosw's bus-idle third word waiting a clock on the previous write's
+  last clock; a request posted during a write starting no earlier than L + 3 at waits. Not
+  run: 3 waits / READY, CALL far / reg / mem, RET, POP R, PREPARE, pin interrupts, PUSH PSW /
+  sreg / imm, block I/O, REP compares. Not built.
