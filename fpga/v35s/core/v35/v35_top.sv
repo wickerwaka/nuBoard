@@ -339,7 +339,7 @@ module v35_top
     wire [1:0]  oc_be;
     wire [15:0] oc_wd;
 
-    wire        ramen = prc[6];
+    wire        ramen = prc[6];     // (F1) the bus unit's on-chip decision; (WO46) the sequencer's and the EU's early end
 
     // ---------------------------------------------------------------- the bus unit
     wire c_a0, c_a19, c_a18_ube, c_mreq_n, c_mstb_n, c_iostb_n, c_read_write, c_refrq_n;
@@ -418,7 +418,7 @@ module v35_top
         .opr_rdy, .rq_busy, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .q_stall_nx(l_qs_nx), .opr_rdy_nx(e_ordy_nx), .rq_busy_nx(e_rqb_nx),
         .wk_nx(s_wk_nx), .ph_nx(b_ph_nx), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx),
-        .wake(h_wake), .igo, .sgo,
+        .wake(h_wake), .igo, .sgo, .ramen,
         .word, .word_nx, .w_dispm, .w_dispm_nx, .w_erep, .w_erep_nx, .ex, .ex_b, .q_susp, .halted,
         .x_disp, .x_tki, .x_end, .x_nb, .x_nbi, .x_flush, .w_stop, .x_stop, .x_ivec, .x_fint
     );
@@ -429,7 +429,7 @@ module v35_top
         .word, .word_nx(word_nx), .op_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx,
         .ra_early, .rb_early, .ex_b,
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
-        .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki, .psw_md,
+        .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .ramen, .psw_brki, .psw_md,
         .psw_ie, .psw_brk, .psw_ie_r, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns_pin(input_levels[0]), .req_ia,
         .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_hlt, .ms_end,
         .tk_dm, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd, .dm_tend, .dm_tlast, .dm_last, .req_dk,

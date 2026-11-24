@@ -115,6 +115,8 @@ module v35_useq
                                         //   AND-OR of registers): the DISP word goes to UROM_INT, not dent
     input  wire        sgo,             // (F5e) an interrupt is taken at a string's take point (a TKI
                                         //   word; v35_intc: an AND-OR of registers): the word's target
+    input  wire        ramen,           // (WO46) PRC bit 6 (v35_sfr's register): the internal RAM
+                                        //   enabled; RAMEN 0 marks the early end (below)
     // (MX5c) tick B: the next values of the stall's inputs (the D nets of their ce_a registers,
     // as they stand after the coming ce_a): the loader's, the datapath's, the bus unit's
     input  wire        q_stall_nx,
@@ -229,17 +231,65 @@ module v35_useq
     // reads as RS_NONE's address 0: no gate in front of the early read); of the late fields only
     // the one-bit facts tick B reads, each as its field's code: d1 = OPRW for KW (the EU's k_nx),
     // bus = MEMR for POST (the EU's post flop); every other late field 0
+    // (WO46, README "WO46") the early end. With the internal RAM disabled (RAMEN 0) the end of a
+    // data-access routine (the next opcode's pop E and the dispatch) rides on its last two words:
+    // a word marked for it is the routine's E word (the next opcode popped and released), and the
+    // word executed after it is the dispatch word whatever its own acts (a store's datum and
+    // post, a read-modify-write's Z, a compare's word with no act); the routine's own E word and
+    // dispatch behind them are then not reached. Two free codes of the K field mark it (uasm `ee`):
+    //   vk alone (no bi, rl not x) on a word whose SEQ is NEXT, JMP, CALL, RET (the layout's forms of
+    //     NEXT) or LOOP (vk is otherwise SR_VEC's
+    //     on a vector word, SEQ VEC or TRAP, and the mode branch's on a JC word, below): a plain
+    //     word; on a LOOP word only on the loop's exit (the counter at 1: the loop body loads no
+    //     counter, uasm), an E word being followed by its dispatch word alone
+    //   nb with bi on a word that is not E (nb is otherwise an E word's, or the CH_BNEXT mark of a
+    //     word with no bus-wait kind): a bus-idle word, which keeps its wait (E with bi: G N)
+    // The forced word is an ordinary E word to every reader (`e`, `ro`; nb cleared). With RAMEN 1
+    // no term below is 1 and the word runs as it reads (vk alone and nb with bi have no other
+    // meaning: wk_bn below excludes bi)
+    reg [8:0]  cnt = 9'd0;                  // the loop counter (declared here: the early end reads it)
+    wire        ee_v = kk[4] && !kk[5] && kk[2:1] != 2'd3
+                       && (s5 == L40_SQ_NEXT || s5 == L40_SQ_JMP || s5 == L40_SQ_CALL || s5 == L40_SQ_RET
+                           || (s5 == L40_SQ_LOOP && cnt == 9'd1));
+    wire        ee_b = kk[6] && kk[5] && !kk[8];
+    // (WO46, README "WO46") the mode branch: a JC word naming the condition DN with the vk bit (uasm
+    // `rz`; DN is otherwise the divide's dividend sign, read on words without vk) takes its jump with
+    // the internal RAM disabled: the REP STM and REP MOVBK heads enter their RAMEN 0 bodies by it.
+    // `ramen_a` is RAMEN as the ce_a registers have it, so tick A's and tick B's next addresses
+    // (cond_a, cond_v) read one value on the clock PRC changes
+    reg         ramen_a = 1'b1;
+    always_ff @(posedge clock)
+        if (!reset_n || ce_a)
+            ramen_a <= ramen;
+    wire        ee_nx = (ee_v || ee_b) && !ramen;
+    reg         ee_q = 1'b0;                // the word now is an early-end word (RAMEN 0)
+    reg         ed_q = 1'b0;                // the word now is its dispatch word
+    wire        ed_nx = (ee_q && ex) || (ed_q && !ex);     // the word read now follows it (or is it still, stalled): the dispatch
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            ee_q <= 1'b0;
+            ed_q <= 1'b0;
+        end else if (ce_a) begin
+            ee_q <= ee_nx;
+            ed_q <= ed_nx;
+        end
+    end
     v35_uword_t wnx;
     always_comb begin
         wnx = '0;
         {wnx.e, wnx.f, wnx.nb, wnx.bi, wnx.vk, wnx.ro} = kk[8:3];
+        if (ee_nx) begin
+            wnx.e = 1'b1;
+            wnx.ro = 1'b1;
+            wnx.nb = 1'b0;
+        end
         wnx.rl = v35_rl_e'(kk[2:1]);
         wnx.flush = kk[0];
         wnx.pop = v35_pop_e'(rpp);
         wnx.wid = v35_wid_e'(rwd);
         wnx.ra = v35_rsel_e'(rra);
         wnx.rb = v35_rsel_e'(rrb);
-        wnx.seq = v35_seq_e'(e_seq);
+        wnx.seq = ed_nx ? SQ_DISP : v35_seq_e'(e_seq);
         wnx.cond = v35_cond_e'(s5[4] ? s5[2:0] : 3'd0);
         wnx.tgt = e_tgt;
         wnx.d1 = e_kw ? MD_OPRW : MD_NONE;
@@ -318,7 +368,6 @@ module v35_useq
     assign w_erep = pd.erep;
 
     reg [UADDR_W-1:0] retr = '0;
-    reg [8:0]  cnt = 9'd0;
     initial halted = 1'b0;
 
     // ------------------------------------------------------------ tick A: the stalls
@@ -448,7 +497,7 @@ module v35_useq
     v35_upre_t pd_nx;
     always_comb begin
         pd_nx.post = e_post;
-        pd_nx.disp = s5[4:1] == L40_SQ_DISP[4:1];
+        pd_nx.disp = s5[4:1] == L40_SQ_DISP[4:1] || ed_nx;
         pd_nx.dispm = 1'b0;                 // (qprobe round 17) DISPM withdrawn
         pd_nx.erep = kk[8] && s5[0];        // an E word's SEQ is NEXT, EREP or JMP (uasm)
         pd_nx.tki = s5[4:1] == L40_SQ_TKI0[4:1];
@@ -475,7 +524,7 @@ module v35_useq
     // presents the kind's free code flush with alt and no bi (the strict word has bi; a FLUSH
     // word never carries vk), so the bus unit can keep the fetch chained behind a write's fetch
     // from starting on the clock this word executes
-    wire        wk_bn = word_nx.nb && !word_nx.e;
+    wire        wk_bn = word_nx.nb && !word_nx.e && !word_nx.bi;     // (WO46) nb with bi: the early end's mark
     assign wk_nx.flush = word_nx.flush || wk_st || wk_bn;
     assign wk_nx.rlx = word_nx.rl == RL_X;
     // (qprobe round 21, spec 10 A1 / Q42's second half, C_NOCH) the commit word that releases a
@@ -519,7 +568,7 @@ module v35_useq
             CD_XC: cond_v = c_xc;
             CD_SNZ: cond_v = c_snz;
             CD_SGD: cond_v = c_f1;
-            CD_DN: cond_v = c_dn;
+            CD_DN: cond_v = word.vk ? !ramen_a : c_dn;     // (WO46) DN with vk: the mode branch (RAMEN 0)
             default: cond_v = 1'b0;
         endcase
     end
@@ -578,7 +627,7 @@ module v35_useq
             CD_XC: cond_a = c_xc;
             CD_SNZ: cond_a = c_snz;
             CD_SGD: cond_a = c_f1;
-            CD_DN: cond_a = c_dn;
+            CD_DN: cond_a = word.vk ? !ramen_a : c_dn;     // (WO46) DN with vk: the mode branch (RAMEN 0)
             default: cond_a = 1'b0;
         endcase
     end
@@ -805,9 +854,29 @@ module v35_useq
     end
     wire [95:0] rw_ref = {r2, r1, r0};
     wire [95:0] qw_ref = {q2, q1, q0};
-    v35_uword_t nx_ref, w_ref;
-    assign nx_ref = v35_uword_t'(rw_ref[UWORD_BITS-1:0]);
-    assign w_ref = v35_uword_t'(qw_ref[UWORD_BITS-1:0]);
+    v35_uword_t nx_raw, w_raw, nx_ref, w_ref;
+    assign nx_raw = v35_uword_t'(rw_ref[UWORD_BITS-1:0]);
+    assign w_raw = v35_uword_t'(qw_ref[UWORD_BITS-1:0]);
+    // (WO46) the reference with the early end's forcing (RAMEN 0): the E word's e / ro / nb, its
+    // dispatch word's seq
+    always_comb begin
+        nx_ref = nx_raw;
+        w_ref = w_raw;
+        if (ee_nx) begin
+            nx_ref.e = 1'b1;
+            nx_ref.ro = 1'b1;
+            nx_ref.nb = 1'b0;
+        end
+        if (ed_nx)
+            nx_ref.seq = SQ_DISP;
+        if (ee_q) begin
+            w_ref.e = 1'b1;
+            w_ref.ro = 1'b1;
+            w_ref.nb = 1'b0;
+        end
+        if (ed_q)
+            w_ref.seq = SQ_DISP;
+    end
     wire       kw_ref = nx_ref.d1 == MD_OPRW || nx_ref.d2 == MD_OPRW;
     always @(posedge clock) begin
         if (chk_on) begin

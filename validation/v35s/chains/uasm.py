@@ -397,6 +397,8 @@ class Word:
     refs: dict = field(default_factory=dict)       # tgt: label
     post_e: bool = False
     open: bool = False      # a word the measured cost needs whose act the sources do not name
+    ee: bool = False        # (WO46) the early end's mark (`ee`; ee_code places its code)
+    rz: bool = False        # (WO46) the mode branch's mark (`rz`: jc=DN with vk, RAMEN 0)
 
 
 @dataclass
@@ -487,6 +489,20 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 fields["vk"] = 1
                 fields["alt"] = 1
                 fields["_strict"] = 1
+            elif k == "rz":
+                # (WO46, the core README "WO46") the mode branch: on a JC word naming the condition DN
+                # the vk bit makes the condition "the internal RAM is disabled" (RAMEN 0; v35_useq's
+                # cond_v / cond_a). Written `jc=DN:label rz`; DN without vk keeps its meaning (the
+                # divide's dividend sign)
+                fields["vk"] = 1
+                fields["_rz"] = 1
+            elif k == "ee":
+                # (WO46, the core README "WO46") the early end: with the internal RAM disabled
+                # (RAMEN 0) this word is the routine's E word and the word executed after it the
+                # dispatch; with RAMEN 1 the mark does nothing. Its code (ee_code, after the
+                # CH_BNEXT marks): vk alone on a plain word (a LOOP word: E on the loop's exit
+                # only), nb on a bus-idle word (bi)
+                fields["_ee"] = 1
             elif k == "alt":
                 # (qprobe round 10) the bus wait's second kind, in the word's vk bit (read by
                 # SR_VEC alone): with bi C (the commit word), with rl=x and bi V (the late
@@ -510,6 +526,25 @@ def parse_word(text: str, path: str, ln: int) -> Word:
     if fields.get("ea") == enum_value("v35_ea_e", "rep") and (fields.get("bus") or not fields.get("e")
                                                               or fields.get("seq")):
         raise UasmError(f"{path}:{ln}: ea=REP is a fact of an E word that posts nothing (F5d)")
+    rz = bool(fields.pop("_rz", 0))
+    if rz and (fields.get("seq") != enum_value("v35_seq_e", "jc")
+                                 or fields.get("cond") != enum_value("v35_cond_e", "dn")
+                                 or fields.get("bi") or fields.get("rl") == RL_X or fields.get("_ee")):
+        raise UasmError(f"{path}:{ln}: rz is the mode branch's mark: jc=DN:label rz on a word with no "
+                        "bus wait")
+    ee = bool(fields.pop("_ee", 0))
+    if ee:
+        sq = fields.get("seq", enum_value("v35_seq_e", "next"))
+        if (fields.get("rl") == RL_X or "tgt" in fields or fields.get("e") or fields.get("bus")
+                or fields.get("flush") or fields.get("ro") or fields.get("nb") or fields.get("vk")
+                or fields.get("pfx") or fields.get("halt")):
+            raise UasmError(f"{path}:{ln}: ee marks a word that is not E and posts nothing (no rl=x, "
+                            "vector, E, post, FLUSH, ro, nb, alt / strict, pfx or halt)")
+        if sq not in (enum_value("v35_seq_e", k) for k in ("next", "jmp", "loop")):
+            raise UasmError(f"{path}:{ln}: ee on a word whose sequencing is not NEXT, JMP or LOOP "
+                            "(the early E word passes to its dispatch word)")
+        if fields.get("bi") and sq == enum_value("v35_seq_e", "loop"):
+            raise UasmError(f"{path}:{ln}: ee on a bus-idle LOOP word (its code has no loop exit)")
     if fields.pop("alt", 0):
         vec = enum_value("v35_src_e", "vec")
         if not (fields.get("bi") or fields.get("rl") == RL_X) or "tgt" in fields or vec in (fields.get(k) for k in ("ws", "s1", "s2", "ax", "ay")):
@@ -519,7 +554,7 @@ def parse_word(text: str, path: str, ln: int) -> Word:
         raise UasmError(f"{path}:{ln}: an open word's comment must start OPEN")
     if act.startswith("OPEN") and not is_open:
         raise UasmError(f"{path}:{ln}: an OPEN comment on a word that is not open")
-    return Word(fields, act, ln, label, refs, open=is_open)
+    return Word(fields, act, ln, label, refs, open=is_open, ee=ee, rz=rz)
 
 
 def parse_file(path: Path) -> list[Routine]:
@@ -820,6 +855,51 @@ def _mark_bnext(words: list) -> None:
             f["nb"] = 1
 
 
+def ee_code(words: list) -> None:
+    """(WO46) the early end's code in each `ee` word (the sequencer's ee_v / ee_b): vk alone on a
+    word without bi, nb with bi on a bus-idle word. Both are free codes: vk is otherwise SR_VEC's
+    (a vector word, SEQ VEC or TRAP) or the bus wait's second kind (with bi or rl=x), nb otherwise
+    an E word's or the CH_BNEXT mark of a word with no bus-wait kind (_mark_bnext). On a LOOP word
+    the sequencer forces E on the loop's exit only (the counter at 1 when the word is read), so
+    the loop's body (its target up to the word) must not load the counter."""
+    loop = enum_value("v35_seq_e", "loop")
+    for i, (r, w) in enumerate(words):
+        if not w.ee:
+            continue
+        f = w.fields
+        if f.get("nb"):
+            raise UasmError(f"{r.path}:{w.line}: ee on a word the CH_BNEXT mark took")
+        if f.get("bi"):
+            f["nb"] = 1
+        else:
+            f["vk"] = 1
+        if f.get("seq") == loop:
+            t = f.get("tgt", 0)
+            if not t < i or any(words[j][1].fields.get("cnt") or words[j][1].ee for j in range(t, i)):
+                raise UasmError(f"{r.path}:{w.line}: ee on a LOOP word whose body loads the counter "
+                                "(or is not behind it)")
+
+
+def ee_decode(v: int) -> bool:
+    """(WO46) the sequencer's decode of the early end's mark from a 40-bit word (v35_useq ee_v,
+    ee_b, without the loop exit and RAMEN): vk alone on a NEXT / JMP / CALL / RET / LOOP word (vk is otherwise a
+    vector word's, SEQ VEC or TRAP, or the mode branch's, a JC word), nb with bi on a word not E."""
+    r = l40_fields(v)
+    k = dict(zip(L40_KF, _kbits(r["K"])))
+    s5 = r["SEQ"]
+    ev = k["vk"] and not k["bi"] and k["rl"] != RL_X and s5 in EE_SEQ
+    eb = k["nb"] and k["bi"] and not k["e"]
+    return bool(ev or eb)
+
+
+def _kbits(kv: int) -> list:
+    out = []
+    for n in reversed(L40_KF):
+        out.append(kv & ((1 << _FW[n]) - 1))
+        kv >>= _FW[n]
+    return list(reversed(out))
+
+
 def assemble_flat(paths: list[Path] | None = None) -> Program:
     """The sources assembled in order, each routine contiguous (no tail shared)."""
     paths = paths if paths is not None else sorted(UROM.glob("*.uasm"))
@@ -867,6 +947,7 @@ def assemble_flat(paths: list[Path] | None = None) -> Program:
                 raise UasmError(f"{r.path}:{w.line}: no label {v!r}")
             w.fields[k] = labels[v]
     _mark_bnext(words)
+    ee_code(words)
     # the decode cells
     cells1, cells2 = {}, {}
     for r in routines:
@@ -1441,7 +1522,7 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = Fal
                 f["seq"] = _SQ[x.k]
             if x.k in _TGT_ADDR:
                 f["tgt"] = addr[x.tgt]
-        words.append((r, Word(f, w0.act, w0.line, None, {}, w0.post_e, w0.open)))
+        words.append((r, Word(f, w0.act, w0.line, None, {}, w0.post_e, w0.open, w0.ee, w0.rz)))
 
     # every source word's address: at its node's stored word, or (a forced successor: the word
     # after a JC / LOOP / call / vector word, and (work order 25) a middle call's return point)
@@ -1694,6 +1775,9 @@ L40_POS = {"SEQ": (35, 5), "K": (26, 9), "POP": (23, 3), "WID": (21, 2), "RA": (
 L40_SEQ = {"NEXT": 0, "EREP": 1, "RET": 2, "HOLD": 3, "TKI0": 4, "TKI1": 5, "DISP": 6,
            "JMP": 8, "CALL": 9, "LOOP": 10, "EAC": 11, "HJMP": 12, "TRAP": 13, "VEC": 14,
            "JC": 16, "JNC": 24}
+# (WO46) the SEQ codes of an early end's word: the source's NEXT, JMP or LOOP, and the CALL / RET the layout
+# makes of a NEXT (a middle call into a stored run, a stored run's return): each passes to the routine's next word
+EE_SEQ = (L40_SEQ["NEXT"], L40_SEQ["JMP"], L40_SEQ["CALL"], L40_SEQ["RET"], L40_SEQ["LOOP"])
 L40_ESC = 28                     # RA >= 28: no register; RA[1:0] is payload
 L40_XN, L40_YN = 256, 256        # X entries; Y entries per half (two halves: POST)
 # the pages (a base is an address prefix: the table address is the prefix and the code)
@@ -2081,6 +2165,18 @@ def l40_pack(prog, strict: bool = True) -> L40Image:
         bad = l40_check_word(img, a, f, v, a in arm)
         if bad:
             img.misfits.append((a, prog.name_of(a), "round trip: " + bad))
+        # (WO46) the sequencer's decode of the early end selects the marked words alone, each
+        # passing to the next word in sequence (NEXT, JMP, LOOP)
+        if ee_decode(v) != W[a][1].ee:
+            img.misfits.append((a, prog.name_of(a), "the early end's decode differs from its mark"))
+        elif W[a][1].ee and l40_fields(v)["SEQ"] not in EE_SEQ:
+            img.misfits.append((a, prog.name_of(a), "an early end's SEQ is not NEXT, JMP, CALL, RET or LOOP"))
+        # (WO46) vk on a jump on DN is the mode branch alone: JC (v35_useq cond_v / cond_a read vk there)
+        rf = l40_fields(v)
+        dn = enum_value("v35_cond_e", "dn")
+        if rf["SEQ"] in (L40_SEQ["JC"] | dn, L40_SEQ["JNC"] | dn) \
+                and dict(zip(L40_KF, _kbits(rf["K"])))["vk"] != (rf["SEQ"] == L40_SEQ["JC"] | dn and W[a][1].rz):
+            img.misfits.append((a, prog.name_of(a), "a jump on DN: vk is the mode branch's mark (rz, JC) alone"))
     if strict and img.misfits:
         raise UasmError("L40: words that do not fit and have no way out:\n" + "\n".join(
             f"  {a:4d} {nm}: {why}" for a, nm, why in img.misfits[:40]))

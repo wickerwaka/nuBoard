@@ -529,6 +529,7 @@ module v35_bus
     // for writes (Q95: the stores keep spec 13 A1 / Q33). Registers only (wkm: the word's kind,
     // as wkr), the grant's term one AND
     reg         lc = 1'b0, lc_b = 1'b0, ych = 1'b0, ych_b = 1'b0, wkm = 1'b0;
+    reg         wkd = 1'b0, wkf = 1'b0, wkr = 1'b0;    // the next word's kind registered: disp, flush, rlx (below)
     // (qprobe round 21, C_NOCH) `lw`: the last EU cycle granted was a memory write; `few`: the
     // fetch last granted was granted with a fetch pending under that write (fe with lw)
     reg         lw = 1'b0, lw_b = 1'b0, few = 1'b0, few_b = 1'b0;
@@ -544,7 +545,11 @@ module v35_bus
     reg         lo = 1'b0, lo_b = 1'b0;
     wire        lo_a = req_ack ? (req_cyc == RQ_IOW) : lo;
     wire        lc_a = g_fetch ? (pend || (lc && dlv_fetch)) : lc;
-    wire        ych_a = (ex && wkm && lc_a) ? 1'b1 : (req_ack || (g_fetch && pend)) ? 1'b0 : ych;
+    // (WO46) the mark is the instruction's: the boundary (the dispatch word executing, `wkd`) clears
+    // it too. A store that ends early (RAMEN 0: its post is its dispatch word) is then no request of
+    // the chain's own on its grant's clock; with RAMEN 1 no boundary comes between a request word
+    // and its grant (the routine's E is on the write's first clock, the dispatch behind it)
+    wire        ych_a = (ex && wkm && lc_a) ? 1'b1 : (req_ack || (g_fetch && pend) || (ex && wkd)) ? 1'b0 : ych;
     wire        lcr = lc && dlv_fetch && ych && req_cyc == RQ_MEMR;
     // (r25, work order 21 B6, Q123, model_m LCHW) the same for an armed write: a write whose
     // request word executed inside the chain (ych) does not stop the chain's next fetch while
@@ -637,7 +642,7 @@ module v35_bus
     // (`rqx`, REQ_PRI), and the boundary's facts as they stand now (the back-to-back fetch at a
     // count of 4, the EU's request standing, the lead's end: the give-way's; HALT released and
     // the word releasing a staged HALT: the line's stop)
-    reg         wkd = 1'b0, wkf = 1'b0, wkr = 1'b0;    // (the kind's disp, flush, rlx)
+    // (the kind's disp, flush, rlx: wkd, wkf, wkr, declared above with wkm)
     // (qprobe round 23, spec 18 A1) `wkp`: the word now has no kind at all (no wait, not the
     // dispatch word, not a FLUSH word); `ry1`: a memory request word Y (rlx with bi, not alt)
     // executed on the last clock; `pl1`: a word with no act executed on the last clock (wkp,

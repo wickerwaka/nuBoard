@@ -10,7 +10,8 @@ routine push_sr op=06,0E,16,1E book="PUSH sreg" diff=2 why="OPEN: silicon longer
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG ra=SOPR d2=OPRW s2=RA        ; SP <- SP - 2; the address register <- it; the segment register (the opcode's bits 4:3) into the write datum
     open                                    ; OPEN: (qprobe round 8) a word with no act (PUSH r16's shape one word later)
     rl=x bi                                 ; (qprobe round 8) Y: the request word (the write due four clocks after it, posted three words later): waits while a fetch has two clocks or more left
-    open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
+    open                                    ; OPEN: (qprobe round 8) a word with no act (WO46: the ee word after it was the shared delay's word)
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch
     bus=MEMW seg=SS wid=WORD                ; post the write at SS:SP (Y + 3)
     e ro                                    ; E: the next opcode released (N); an on-chip store holds it to the write's end (RAMEN)
 
@@ -68,7 +69,8 @@ routine push_all op=60 book="PUSH R" diff=2 why="OPEN: silicon longer than the b
     f                                       ; D: F: the push's end
     open                                    ; OPEN: a word with no act
     ra=IY wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG rl=x bi wr=SP ws=SIG ; Y: IY into the write datum; the address register <- SIGMA; SIGMA - 2; SP <- SP - 16 (SIGMA before the step: the last address)
-    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    open                                    ; OPEN: a word with no act (WO46: the ee word after it was the shared delay's word)
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch
     bus=MEMW seg=SS wid=WORD                ; post the push (Y + 3)
     e ro bi                                 ; E: G N (held to the write's end on the on-chip page: RAMEN)
 

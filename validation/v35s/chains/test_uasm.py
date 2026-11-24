@@ -526,8 +526,9 @@ class TailSharing(unittest.TestCase):
                 f = dict(w.fields)
                 if not f.get("e"):
                     f.pop("nb", None)
-                words.append((r, uasm.Word(f, w.act, w.line)))
+                words.append((r, uasm.Word(f, w.act, w.line, ee=w.ee)))
             uasm._mark_bnext(words)
+            uasm.ee_code(words)         # (WO46) nb with bi: the early end's code, not CH_BNEXT's
             for b, ((_, x), (_, y)) in enumerate(zip(sh.words, words)):
                 if b in sh.mrets:
                     continue

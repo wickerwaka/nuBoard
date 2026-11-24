@@ -29,13 +29,13 @@ routine cmp_rm op=3A,3B mod=mem ea=q book="CMP reg,mem" diff=d16:-1 why="(qprobe
 ; ---- read-modify-write (V20 ALU_RM with the memory destination: SIGMA -> M [-06-])
 routine rmw diff=m00:+2,d8:+2,d16:+1,dir:+2 op=00,01,08,09,10,11,18,19,20,21,28,29,30,31 mod=mem ea=q book="ADD mem,reg" why="(qprobe round 21, spec 17 B1, Q98) one routine for the whole write-back ALU group on memory, byte and word: OR / AND / SUB / XOR / ADC / SBB [BW],r16 and ADD / OR / SUB [BW],r8 run ADD [BW],r16's routine (the qprobe r21f orw / andw / subw / xorw / adcw / sbbw / addb / orb / subb runs, 66 / 66 each); AND / XOR / ADC / SBB byte by analogy; the round-6 routine of the other ALU ops and the byte form retired. OPEN: silicon longer than the book (measured, the qprobe shapes below; the extra words OPEN): (qprobe round 8, Q19) ADD [BW],AW is `P Y . . DZ N` and ADD [BW+d8],AW `P Y . P DZ N` (the qprobe rw-add / rw-add8 / rmw runs): the read as a load (the measured heads, ea=q: the request word on word 2), D (F: the datum and the register, the ALU op, flags), the write's post on the word after it (Z: the write two clocks after the datum word: the address is already the bus unit's, the second request skips the two clocks a first one spends handing it over), E (an on-chip store holds it to the write's end: RAMEN), N on the boundary word (the model's: released when the dispatch executes, on the write's last clock: rule 7, E_PEND). Measured: [BW] and [BW+d8] with a register source (op 01); the other EA modes by analogy (Q18's rule: the heads; they share the routine); the byte form and the other ALU ops keep the round-6 routine (rmw_b); beyond the book in the book check's machine (E held to the write's end: the on-chip timing; the heads' request word); before round 8: the add, the read's post (S+4), F, the write's post, E held (F5-push-add_m_aw-k2-pE-w0)"
     bus=MEMR                                ; post the read (Y + 3)
-    f ra=REG alu=GRP ax=OPR ay=RA wf        ; D: F: the datum and the register; the ALU op, flags (W) (0000)
+    f ee ra=REG alu=GRP ax=OPR ay=RA wf        ; D: F: the datum and the register; the ALU op, flags (W) (0000) ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (0001 SIGMA -> M: the write two clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 routine cmp_mr op=38,39 mod=mem ea=q book="CMP mem,reg" diff=m00:+2,d8:+2,d16:+1,dir:+2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 15, spec 11 B) CMP mem,reg is `P Y . D . N .` (the qprobe cmpmr / cmpmr8 runs, 48 / 48 in the model): the measured heads (ea=q), the read (Y + 3), D (F with CMP), a word, E with N; OPEN: the read, five clocks no act names under the cycle, F with CMP on the clock before E (no write) (as F5-push-cmp_aw_m-k2-pE-w0: S-to-S 11: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
     bus=MEMR                                ; post the read (Y + 3)
-    f ra=REG alu=GRP ax=OPR ay=RA wf        ; D: F: the datum and the register; CMP, flags (W)
+    f ee ra=REG alu=GRP ax=OPR ay=RA wf        ; D: F: the datum and the register; CMP, flags (W) ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     open                                    ; OPEN: (qprobe round 15) a word with no act
     e ro                                    ; E: the write suppressed (CMP); N
 ; TEST mem,reg (V20 TEST_RM 0044-0045: M -> tmpa, R -> tmpb; AND; SIGMA -> NULL)
@@ -62,15 +62,45 @@ routine xch_m diff=m00:+2,d8:+2,d16:+1,dir:+2 op=86,87 mod=mem ea=q book="XCH me
     bus=MEMR                                ; post the read (Y + 3)
     f ra=REG d1=OPRW s1=RA wr=REG ws=OPR    ; D: F: the register into the write datum (0048), the datum into the register (0049)
     open                                    ; OPEN: (qprobe round 9) a word with no act
-    bi                                      ; (qprobe round 22, spec 18 B, Q102) B Z: the word in front of the write's post is bus-idle (XCH [BW],r `P Y . . D . BZ G N .`, [d16],r `P Y . PP2 D . BZ G N .`; the other modes by the heads)
+    bi ee                                   ; (qprobe round 22, spec 18 B, Q102) B Z: the word in front of the write's post is bus-idle (XCH [BW],r `P Y . . D . BZ G N .`, [d16],r `P Y . PP2 D . BZ G N .`; the other modes by the heads); ee (WO46): the early end on a bus-idle word (RAMEN 0: this word is E, keeping its wait; the post word the dispatch)
     bus=MEMW                                ; Z: post the write (004A tmpb -> M: four clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 ; ---- stores (V20 MOV_RM 004C-004D, the store direction: R -> tmpa, tmpa -> M; the operand
 ; pre-read suppressed, pla_3 MODRM_STORE)
-routine st diff=m00:+2,d8:+2,d16:+1,dir:+2 op=88,89 mod=mem ea=q book="MOV mem,reg" why="beyond the book: a named act, the request word (Y) and the post on words of their own (the qprobe sbw, sd8, sdir runs); beyond the book by two at EA 3 and one at mod 10 in the book check's machine (E held to the write's end: the on-chip timing, the post and E on words of their own); OPEN: (qprobe round 6) MOV mem,r is `P Y . N`, `P Y . P N`, `P Y . PP N` (the qprobe sbw, sd8, sdir runs; model_m.py S_*): the measured heads (ea=q), the register's read with the post on word 5 (Y + 3), E, the boundary with N (the model's last word) on the write's last clock (rule 7, E_PEND); book error where the routine is shorter, silicon longer than the book where it is longer"
-    ra=REG d1=OPRW s1=RA bus=MEMW           ; the register into the write datum (004C); post the write (004D)
-    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
+; (WO46, the core README "WO46") MOV mem,reg carries the measured heads' words itself (eaq0 / eaq8 / eaq16 /
+; eaq16x, word for word: the same clocks, pops and releases at RAMEN 1) instead of calling them, so that the head's
+; last word can carry the early end (ee): with RAMEN 0 it is the E word and the post word the dispatch (the heads
+; are shared with the loads, whose end does not move). st carries the mod 00 cells but the direct address
+; (st_mdir) and the book's row at [BW]; st_d8, st_d16, st_d16x, st_mdir the other modes
+routine st diff=2 op=88,89 mod=m00 rm=0-5,7 book="MOV mem,reg" why="OPEN: (WO46) the head's words in the routine (eaq0's: word 1 with no act, the ModR/M byte released by the loader); beyond the book: a named act, the request word (Y) and the post on words of their own (the qprobe sbw, sd8, sdir runs); beyond the book by two at EA 3 and one at mod 10 in the book check's machine (E held to the write's end: the on-chip timing, the post and E on words of their own); OPEN: (qprobe round 6) MOV mem,r is `P Y . N`, `P Y . P N`, `P Y . PP N` (the qprobe sbw, sd8, sdir runs; model_m.py S_*): the measured heads (ea=q), the register's read with the post on word 5 (Y + 3), E, the boundary with N (the model's last word) on the write's last clock (rule 7, E_PEND); book error where the routine is shorter, silicon longer than the book where it is longer; (WO46, the RAMEN design study, f5_ws / f5_wt / f5_wu / f5_wv) with RAMEN 0 the end rides on the head's last word (E) and the post word (the dispatch): S' on the write's first clock"
+    open                                    ; OPEN: (qprobe round 6) word 1, the ModR/M byte released (mra) (eaq0's)
+    rl=x bi                                 ; Y: the request word
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E (the next opcode popped and released), the post word the dispatch
+st_p: ra=REG d1=OPRW s1=RA bus=MEMW         ; the register into the write datum (004C); post the write (004D); with RAMEN 0 the dispatch word
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock (RAMEN 1; with RAMEN 0 not reached)
+routine st_d8 op=88,89 mod=m01 why="(WO46) MOV mem,reg with d8: eaq8's words (`P Y . P N`: the qprobe sd8 runs), then st's post; the early end on the head's last word (RAMEN 0)"
+    pop=dl                                  ; the ModR/M byte released (mra); pop the displacement byte
+    rl=x bi                                 ; Y: the request word
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=1 ee jmp=st_p                        ; the displacement released; ee (WO46): the early end
+routine st_d16 op=88,89 mod=m10 rm=4-7 why="(WO46) MOV mem,reg with one register + d16: eaq16's words (`P Y . PP N`), then st's post; the early end on the head's last word (RAMEN 0)"
+    pop=dl                                  ; the ModR/M byte released (mra); pop the displacement's low byte
+    pop=dh rl=x bi                          ; Y: the request word; pop its high byte
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=2 ee jmp=st_p                        ; both displacement bytes released; ee (WO46): the early end
+routine st_d16x op=88,89 mod=m10 rm=0-3 why="(WO46) MOV mem,reg with base + index + d16: eaq16x's words (qprobe round 10, Q18: the request word on word 3), then st's post; the early end on the head's last word (RAMEN 0)"
+    pop=dl                                  ; the ModR/M byte released (mra); pop the displacement's low byte
+    pop=dh                                  ; pop its high byte
+    rl=x bi                                 ; Y: the request word (the third word)
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=2 ee jmp=st_p                        ; both displacement bytes released; ee (WO46): the early end
+routine st_mdir op=88,89 mod=m00 rm=6 why="(WO46) MOV [d16],reg by ModR/M: eaq16's words (`P Y . PP N`: the qprobe sdir runs), then st's post; the early end on the head's last word (RAMEN 0)"
+    pop=dl                                  ; the ModR/M byte released (mra); pop the direct address's low byte
+    pop=dh rl=x bi                          ; Y: the request word; pop its high byte
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=2 ee jmp=st_p                        ; both address bytes released; ee (WO46): the early end
 
 ; MOV mem,imm (C6 / C7 /0): the immediate popped after the EA (the V20's routine pops it after
 ; the loader's EA), into the write datum, the post
@@ -118,7 +148,7 @@ routine st_sr op=8C mod=mem ea=bare book="MOV mem16,sreg" diff=m00:+2,d8:+3,d16:
     open                                    ; OPEN: (qprobe round 14) a word with no act
     rl=x bi alt                             ; (qprobe round 14) V: the late request word (the write due four clocks after it)
     rb=SREG wid=WORD d1=OPRW s1=RB          ; the segment register into the write datum
-    open                                    ; OPEN: (qprobe round 14) a word with no act
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch 
     bus=MEMW wid=WORD                       ; post the write (V + 3: a word)
     e ro bi                                 ; E: G N (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
@@ -196,7 +226,7 @@ routine grp1_mw8 diff=m00:+4 op=80,82,83 mod=mem reg=0-6 ea=bare paths=m00 book=
     rl=x bi alt                             ; (qprobe round 10, A4) V: the late request word (waits while a fetch runs then, not on its last clock; no REQ_PRI): the read due four clocks after it
     open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
 g8w_p: bus=MEMR                                ; post the read (V + 3)
-    f alu=GRP ax=OPR ay=IMM wf rl=1         ; D P: F: the datum and the immediate; the group's op, flags (W); the immediate released
+    f ee alu=GRP ax=OPR ay=IMM wf rl=1         ; D P: F: the datum and the immediate; the group's op, flags (W); the immediate released ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
@@ -207,7 +237,7 @@ routine grp1_mw diff=m00:+2 op=81 mod=mem reg=0-6 ea=bare paths=m00 bookv=15 boo
 g16w_i: pop=il                                  ; pop the immediate's low byte (released on the datum word)
     pop=ih                                  ; pop its high byte (released on the datum word)
     bus=MEMR                                ; post the read (Y + 3)
-    f alu=GRP ax=OPR ay=IMM wf rl=2         ; D P P2: F: the datum and the immediate; the group's op, flags (W); the immediate released
+    f ee alu=GRP ax=OPR ay=IMM wf rl=2         ; D P P2: F: the datum and the immediate; the group's op, flags (W); the immediate released ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
@@ -217,7 +247,7 @@ routine grp1_mcw8 diff=m00:+1 op=80,82,83 mod=mem reg=7 ea=bare paths=m00 book="
     rl=x bi alt                             ; (qprobe round 10, A4) V: the late request word (waits while a fetch runs then, not on its last clock; no REQ_PRI): the read due four clocks after it
     open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
 g8c_p: bus=MEMR                                ; post the read (V + 3)
-    f alu=GRP ax=OPR ay=IMM wf rl=1         ; D P: F: the datum and the immediate; CMP, flags (W); the immediate released
+    f ee alu=GRP ax=OPR ay=IMM wf rl=1         ; D P: F: the datum and the immediate; CMP, flags (W); the immediate released ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     open                                    ; OPEN: (qprobe round 10) a word with no act
     e bi ro                                 ; E (CMP writes nothing): B N: bus-idle; the next opcode released
 
@@ -228,7 +258,7 @@ routine grp1_mcw diff=m00:2 op=81 mod=mem reg=7 ea=bare paths=m00 book="CMP mem,
 g16c_i: pop=il                                  ; pop the immediate's low byte (released on the datum word)
     pop=ih                                  ; pop its high byte
     bus=MEMR                                ; post the read (Y + 3)
-    f alu=GRP ax=OPR ay=IMM wf rl=2         ; D P P2: F: the datum and the immediate; CMP, flags (W); the immediate released
+    f ee alu=GRP ax=OPR ay=IMM wf rl=2         ; D P P2: F: the datum and the immediate; CMP, flags (W); the immediate released ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     open                                    ; OPEN: (qprobe round 13, Q43) a word with no act
     e bi ro                                 ; E (CMP writes nothing): B N
 
@@ -346,7 +376,7 @@ routine inc_m op=FE,FF mod=mem reg=0 ea=bare paths=m00 diff=m00:+2 book="INC mem
     open                                    ; OPEN: (qprobe round 8) a word with no act
     open                                    ; OPEN: (qprobe round 8) a word with no act
     bus=MEMR                                ; post the read (Y + 3)
-incm_f: f alu=INC ax=OPR wf               ; D: F: the operation on the datum
+incm_f: f ee alu=INC ax=OPR wf               ; D: F: the operation on the datum ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
@@ -359,7 +389,7 @@ routine dec_m op=FE,FF mod=mem reg=1 ea=bare paths=m00 diff=m00:+2 book="DEC mem
     open                                    ; OPEN: (qprobe round 8) a word with no act
     open                                    ; OPEN: (qprobe round 8) a word with no act
     bus=MEMR                                ; post the read (Y + 3)
-decm_f: f alu=DEC ax=OPR wf               ; D: F: the operation on the datum
+decm_f: f ee alu=DEC ax=OPR wf               ; D: F: the operation on the datum ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
@@ -372,7 +402,7 @@ routine not_m op=F6,F7 mod=mem reg=2 ea=bare paths=m00 diff=m00:+2 book="NOT mem
     open                                    ; OPEN: (qprobe round 8) a word with no act
     open                                    ; OPEN: (qprobe round 8) a word with no act
     bus=MEMR                                ; post the read (Y + 3)
-notm_f: f alu=NOT ax=OPR                  ; D: F: the operation on the datum
+notm_f: f ee alu=NOT ax=OPR                  ; D: F: the operation on the datum ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
@@ -385,7 +415,7 @@ routine neg_m op=F6,F7 mod=mem reg=3 ea=bare paths=m00 diff=m00:+2 book="NEG mem
     open                                    ; OPEN: (qprobe round 8) a word with no act
     open                                    ; OPEN: (qprobe round 8) a word with no act
     bus=MEMR                                ; post the read (Y + 3)
-negm_f: f alu=NEG ax=OPR wf               ; D: F: the operation on the datum
+negm_f: f ee alu=NEG ax=OPR wf               ; D: F: the operation on the datum ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
@@ -566,7 +596,8 @@ shm1_p: bus=MEMR                            ; post the read (Y + 3)
     f alu=SHI ax=OPR                        ; D: F: the shifter loaded from the datum with CY
     alu=SH1 ax=SIG                          ; the one step
     d1=OPRW s1=SIG alu=SHF ax=SIG wf        ; the result into the write datum; the shift's flags (W)
-    open call=w3                            ; OPEN: (qprobe round 11) four words with no act (the call and the shared delay's 3)
+    open call=w2                            ; OPEN: (qprobe round 11) three words with no act (the call and the shared delay's 2; WO46: the ee word after them the fourth)
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch
     bus=MEMW                                ; Z: post the write (the datum + 7)
     e ro bi                                 ; E: (Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
@@ -604,7 +635,7 @@ routine shm_cl op=D2,D3 mod=mem ea=bare book="SHL mem,CL" n=4 diff=m00:+3,d8:+4,
     open call=w2                            ; OPEN: (qprobe round 14) three words with no act (the call and the shared delay's 2: the model's Z is the post's word less one)
     jc=CNTZ:shmc_z                          ; a zero count skips the loop (SHIFT 0228 JMP Z): the third of the 3 + 2n words
 shmc_l: alu=SH1 ax=SIG                      ; one shift step of the group's operation
-    loop=shmc_l                             ; the counter step (the iteration's second word)
+    loop=shmc_l ee                          ; the counter step (the iteration's second word); ee (WO46): the early end on the loop's exit (RAMEN 0: on its last pass this word is E, the post word the dispatch)
     d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; Z: the result into the write datum; the shift's flags (W); post the write
     e ro bi                                 ; E: G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 shmc_z: e ro bi                             ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E (bus-idle: not measured)
@@ -621,7 +652,7 @@ routine shm_imm op=C0,C1 mod=mem ea=bare bookx="EA+15+2n" n=4 diff=m00:+5,d8:+6,
     open call=w3                            ; OPEN: (qprobe round 14) four words with no act (the call and the shared delay's 3: the model's Z is the post's word less one, Z_LAT 2 against the RTL's post-to-grant 1)
     jc=CNTZ:shmi_z                          ; a zero count skips the loop: the fourth of the 4 + 2n words
 shmi_l: alu=SH1 ax=SIG                      ; one shift step
-    loop=shmi_l                             ; the counter step
+    loop=shmi_l ee                          ; the counter step; ee (WO46): the early end on the loop's exit (RAMEN 0: on its last pass this word is E, the post word the dispatch)
     d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; Z: the result into the write datum; the shift's flags (W); post the write
     e ro bi                                 ; E: G N (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 shmi_z: e ro bi                             ; (F5b) the count 0: no write (the flags kept); E (bus-idle: not measured)
@@ -639,7 +670,8 @@ routine push_m diff=m00:+2 op=FF mod=mem reg=6 paths=m00 ea=bare book="PUSH mem1
     bus=MEMR wid=WORD                       ; post the read (Y + 3: a word)
     f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP - 2; the address register <- it
-    open call=w2                            ; OPEN: (qprobe round 10) three words with no act (the call and the shared delay's 2)
+    open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1; WO46: the ee word after them the third)
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch
     bus=MEMW seg=SS wid=WORD                ; Z: post the write at SS:SP (four words after the datum)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
@@ -657,7 +689,8 @@ routine push_m8 op=FF mod=m01 reg=6 why="OPEN: silicon longer than the book (mea
     f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP - 2; the address register <- it
-    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    open                                    ; OPEN: a word with no act (WO46: the ee word after it was the shared delay's word)
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch
     bus=MEMW seg=SS wid=WORD                ; Z: post the push at SS:SP
     e ro bi                                 ; E: G N; an on-chip store holds it to the write's end (RAMEN)
 
@@ -673,7 +706,8 @@ routine push_m16 op=FF mod=m10 reg=6 why="OPEN: silicon longer than the book (me
     f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP - 2; the address register <- it
-    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    open                                    ; OPEN: a word with no act (WO46: the ee word after it was the shared delay's word)
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch
     bus=MEMW seg=SS wid=WORD                ; Z: post the push at SS:SP
     e ro bi                                 ; E: G N; an on-chip store holds it to the write's end (RAMEN)
 
@@ -689,7 +723,8 @@ routine push_mdir op=FF mod=m00 rm=6 reg=6 why="OPEN: silicon longer than the bo
     f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP - 2; the address register <- it
-    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    open                                    ; OPEN: a word with no act (WO46: the ee word after it was the shared delay's word)
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch
     bus=MEMW seg=SS wid=WORD                ; Z: post the push at SS:SP
     e ro bi                                 ; E: G N; an on-chip store holds it to the write's end (RAMEN)
 
@@ -701,7 +736,8 @@ routine pop_m diff=m00:+2 op=8F mod=mem reg=0,1,2,3,4,5,6,7 ea=bare paths=m00 bo
     wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2 (005A)
     bus=MEMR seg=SS wid=WORD                ; post the read at SS:SP (Y + 3; 0059)
     f d1=OPRW s1=OPR d2=ADDR s2=TC          ; D: F: the datum into the write datum; the address register <- the EA (005A)
-    open call=w2                            ; OPEN: (qprobe round 10) three words with no act (the call and the shared delay's 2)
+    open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1; WO46: the ee word after them the third)
+    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch
     bus=MEMW wid=WORD                       ; Z: post the write at the EA (the default segment; 005B; three words after the datum)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
@@ -718,7 +754,7 @@ routine pop_m8 op=8F mod=m01 reg=0,1,2,3,4,5,6,7 why="OPEN: (qprobe round 11-12,
     f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (base + index + the displacement)
     open                                    ; OPEN: a word with no act
-    rl=1                                    ; P (Z's word): the displacement released
+    ee rl=1                                    ; P (Z's word): the displacement released ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     bus=MEMW wid=WORD                       ; Z: post the write at the EA (the default segment)
     e ro bi                                 ; E: G N; an on-chip store holds it to the write's end (RAMEN)
 
@@ -732,7 +768,7 @@ routine pop_m16 op=8F mod=m10 rm=4-7 reg=0,1,2,3,4,5,6,7 why="OPEN: (qprobe roun
     f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
     open                                    ; OPEN: a word with no act
-    rl=2                                    ; P P2 (Z's word): the displacement released
+    ee rl=2                                    ; P P2 (Z's word): the displacement released ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     bus=MEMW wid=WORD                       ; Z: post the write at the EA (the default segment)
     e ro bi                                 ; E: G N; an on-chip store holds it to the write's end (RAMEN)
 
@@ -746,7 +782,7 @@ routine pop_m16x op=8F mod=m10 rm=0-3 reg=0,1,2,3,4,5,6,7 why="OPEN: (qprobe rou
     f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
     open call=w1                            ; OPEN: (qprobe round 20, Q90) two words with no act (two registers and a d16: one more) (the call and the shared delay's 1)
-    rl=2                                    ; P P2 (Z's word): the displacement released
+    ee rl=2                                    ; P P2 (Z's word): the displacement released ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     bus=MEMW wid=WORD                       ; Z: post the write at the EA (the default segment)
     e ro bi                                 ; E: G N; an on-chip store holds it to the write's end (RAMEN)
 
@@ -760,7 +796,7 @@ routine pop_md op=8F mod=m00 rm=6 reg=0,1,2,3,4,5,6,7 why="OPEN: (qprobe round 1
     f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
     ea=DISP                                 ; the address register <- the direct address
     open                                    ; OPEN: a word with no act
-    rl=2                                    ; P P2 (Z's word): the direct address released
+    ee rl=2                                    ; P P2 (Z's word): the direct address released ; ee (WO46): the early end (RAMEN 0: this word is E, the next word the dispatch)
     bus=MEMW wid=WORD                       ; Z: post the write at the direct address (DS0 or the prefix's)
     e ro bi                                 ; E: G N; an on-chip store holds it to the write's end (RAMEN)
 

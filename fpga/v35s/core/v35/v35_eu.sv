@@ -66,6 +66,8 @@ module v35_eu
     input  wire [15:0] ins_ip,          // (F2b) the instruction's start: its first prefix's offset
     input  wire [7:0]  idb,             // (F2b) IDB (v35_sfr's register): SG_IDB's segment
     input  wire        p14,             // (F2b) the P14 pin as POLL reads it (v35_sfr's register)
+    input  wire        ramen,           // (WO46) PRC bit 6 (v35_sfr's register): the internal RAM
+                                        //   enabled; RAMEN 0 moves the end of a data access (README "WO46")
     // the register RAM
     output wire [6:0]  ra_next,
     output wire [6:0]  rb_next,
@@ -219,6 +221,7 @@ module v35_eu
     // the LOCK's offset; the loader's ins_ip keeps it through the segment prefixes only)
     reg [1:0]  pist = 2'd0;              // (F4q) its low two bits: all sist reads
     reg        pist_v = 1'b0;
+    reg        pfx_c = 1'b0;            // (WO46) the prefix's clear due on the word after E (RAMEN 0)
     // (F4q) silicon's instruction start (validation/v35s/pfxtake.py, both sessions): the opcode's
     // offset less the count of its prefix bytes modulo 4 (a two-bit prefix count: 1-3 prefixes
     // give the first prefix's offset, 4 the opcode's own, 5 the fifth prefix's, ...). Every
@@ -853,11 +856,25 @@ module v35_eu
     // free on an external write the second push's PC load overtook the first push's datum, then
     // OPRW live until B2; the datum is now the request's own, `rq_d`, so that is no longer what
     // F protects: F35 / F40's far call / return timing is what it keeps)
-    wire        wr_run = rq_out && rq_wr && !rq_io && !req_done;
+    // (WO46, README "WO46": the early end) with the internal RAM disabled (RAMEN 0) the F word
+    // behind a memory write does not wait for the write: the routine's end has already ridden on
+    // its last two words (the sequencer's early end), and silicon's next words run under the
+    // write. With RAMEN 1 the term is the old one. `ramen_a` is RAMEN as the ce_a registers have
+    // it (loaded at ce_a from the SFR register), so wr_run (from ce_a registers) and wr_run_nx
+    // (their D nets, read with RAMEN itself) agree on the clock PRC changes
+    reg         ramen_a = 1'b1;
+    always_ff @(posedge clock)
+        if (!reset_n || ce_a)
+            ramen_a <= ramen;
+    wire        wr_run = rq_out && rq_wr && !rq_io && !req_done && ramen_a;
     assign opr_rdy = rq_wr ? !wr_run : (opr_v || (req_done && rq_out && rq_rd));
     // (MX1) the slot frees on the cycle's end (req_done): a post on that clock stands from the
     // next, the book check's machine (uasm.length: a post waits for the last request's end)
-    assign rq_busy = rq_v || (rq_out && !req_done);
+    // (WO46) with RAMEN 0 the slot behind a memory write frees a clock later (the clock after
+    // req_done's): a post made while a write is on the pins is granted no earlier than L + 3
+    // (`sl_w`: the write's end clock still holds the slot). With RAMEN 1 the old term
+    wire        sl_w = req_done && rq_wr && !rq_io && !ramen_a;
+    assign rq_busy = rq_v || (rq_out && !(req_done && !sl_w));
     // (qprobe rule 7) an external write is waited for by the boundary alone (the sequencer's:
     // the dispatch until the cycle's last clock). (WO31) The on-chip store's hold of E (wr_hold,
     // the RAMEN hold) is gone: the store lands in its cycle's first clock. `oc_hit`: the post's
@@ -881,10 +898,11 @@ module v35_eu
     wire        rq_io_nx = post ? b_io : rq_io;
     assign rqm_nx = rq_v_nx && !rq_io_nx;
     wire        opr_v_nx = (ex_b && word.f) ? 1'b0 : (req_done && rq_out && rq_rd) ? 1'b1 : opr_v;
-    wire        wr_run_nx = rq_out_nx && rq_wr_nx && !rq_io_nx && !req_done_nx;
+    wire        wr_run_nx = rq_out_nx && rq_wr_nx && !rq_io_nx && !req_done_nx && ramen;
     assign opr_rdy_nx = rq_wr_nx ? !wr_run_nx
                       : (opr_v_nx || (req_done_nx && rq_out_nx && rq_rd_nx));
-    assign rq_busy_nx = rq_v_nx || (rq_out_nx && !req_done_nx);
+    wire        sl_w_nx = req_done_nx && rq_wr_nx && !rq_io_nx && !ramen;
+    assign rq_busy_nx = rq_v_nx || (rq_out_nx && !(req_done_nx && !sl_w_nx));
     assign c_sgn = sigma[15];
     assign sig_lo = sigma[3:0];
     assign c_dtrap = dtrap;
@@ -924,6 +942,7 @@ module v35_eu
             pfx_v <= 1'b0;
             pfx_s <= 2'd0;
             pist_v <= 1'b0;
+            pfx_c <= 1'b0;
             rq_v <= 1'b0;
             rq_un <= 1'b0;
             rq_rs <= 1'b0;
@@ -1042,8 +1061,14 @@ module v35_eu
                         pfx_v <= 1'b1;
                         pfx_s <= fmt.seg[1:0];
                     end
-                end else if (word.e && !fmt.seg[2] && word.ea != EA_REP)
+                end else if ((word.e && !fmt.seg[2] && word.ea != EA_REP && ramen_a) || pfx_c)
                     pfx_v <= 1'b0;
+                // (WO46) with RAMEN 0 the clear lands on the word after E (the dispatch word),
+                // not on E: an early end's dispatch word is its routine's post (the sequencer's
+                // early end) and posts at the prefix's segment. Any other dispatch word posts no
+                // memory request (uasm: the word after E posts an I/O write at most), so for it
+                // the clear's place is not seen. With RAMEN 1 the clear is on E as before
+                pfx_c <= word.e && !word.pfx && !fmt.seg[2] && word.ea != EA_REP && !ramen_a;
             end
             // the request
             rq_hd <= post && hp_b;

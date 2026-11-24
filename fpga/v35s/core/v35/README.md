@@ -10162,3 +10162,66 @@ integer, no new ALU code. Record: build/overseer/wo43/rtl.md.
   the later takes in f5_pe_h4 / f5_pf_a / f5_pf_c (se1, tm0, p0 for silicon's se1, p0, tm0: silicon's
   scan behind the second take, entered behind a RETI's refetch, is a clock later than its first take's
   rule; record D).
+
+## Work order 46: RAMEN moves the end of a data access (the early end)
+
+Built on 0108860 with work order 45's microcode. Source: the RAMEN design study (build/overseer/ramen-design
+DESIGN.md: silicon's routine acts sit on the same clocks with the internal RAM enabled and disabled; what moves
+is the routine's end), the four store sets f5_ws / f5_wt / f5_wu / f5_wv in both PRC twins. Two 1-bit inputs
+(the user's ruling 2026-11-24): `ramen` (PRC bit 6, v35_sfr's register) into v35_useq and into v35_eu. No
+opcode is named in RTL, no integer is fitted; the routines' words are the same at RAMEN 1. Record:
+build/overseer/wo46/rtl.md.
+
+- **The early end (sequencer).** A data-access routine's end is the next opcode's pop (E) and the dispatch
+  word. With RAMEN 1 they are two words of their own behind the routine's post (`... post ; E ; dispatch`),
+  and the dispatch waits for the write running then (rule 7). With RAMEN 0 they ride on the routine's last two
+  words: a word the microcode marks `ee` is the E word (the next opcode popped and released), and the word
+  executed after it is the dispatch word whatever its own acts (a store's datum and post, a read-modify-write's
+  Z, a compare's word with no act); the routine's own E and dispatch behind them are not reached. The post word
+  being the dispatch word is what OUT's I/O write already does. In v35_useq the mark forces the next word's
+  `e` / `ro` (nb cleared) in tick B (`word_nx`, so the loader, the EU and the pace see an ordinary E word) and a
+  flop pair (`ee_q`, `ed_q`) makes the following word's sequencing DISP. Every term is 0 with RAMEN 1.
+- **The mark's two codes** (uasm `ee`; the assembler places the code, ee_code, and checks at the L40 pack that the
+  sequencer's decode selects exactly the marked words): `vk` alone (no bi, rl not x) on a word whose SEQ is
+  NEXT, JMP, CALL, RET (the layout's forms of a NEXT) or LOOP (a vector word's vk is SR_VEC's and its SEQ VEC or
+  TRAP; the mode branch's is a JC's), and `nb` with `bi` on a word that is
+  not E (nb is otherwise an E word's, or the CH_BNEXT mark of a word with no bus-wait kind: `wk_bn` now
+  excludes bi). The second is the early end on a bus-idle word (XCH mem's B word: it keeps its wait, E with bi
+  being G N). On a LOOP word (the memory shifts' counter step) the first code forces E on the loop's exit only
+  (the counter at 1 when the word is read; the assembler requires a body that loads no counter): an E word is
+  followed by its dispatch word alone.
+- **The mark's place** is read from the pins (DESIGN.md 1.1 - 1.4): the latest word such that the post word is
+  the dispatch. A routine whose last word takes instruction-stream bytes (MOV mem,imm: the immediate released
+  with the next opcode on the write's first clock) has none, and keeps RAMEN 1's clocks at both settings.
+  MOV mem,reg carries the measured heads' words itself (st, st_d8, st_d16, st_d16x, st_mdir) so the head's last
+  word can carry the mark; MOV [d16],acc pops its address one word earlier (released on the same word as before:
+  the queue's occupancy, which the pins see, is unchanged) so the marked word pops nothing.
+- **F behind a memory write (EU, `wr_run`)** waits for the write only with RAMEN 1: with RAMEN 0 the next words
+  run under the write (PUSH R, PREPARE).
+- **The slot behind a memory write (EU, `rq_busy`)** with RAMEN 0 stands through req_done's clock (`sl_w`): a
+  post made while a write is on the pins is granted no earlier than L + 3 (the follower and the back-to-back
+  store at 1 and 2 waits). Gated by RAMEN, so RAMEN 1's slot is the old one by construction.
+- **The segment prefix (EU)** with RAMEN 0 is cleared on the word after E (`pfx_c`), not on E: an early end's
+  dispatch word is its routine's post and posts at the prefix's segment. Any other dispatch word posts no memory
+  request (uasm: the word after E posts an I/O write at most), so for it the clear's place is not seen. With
+  RAMEN 1 the clear is on E.
+- The EU reads RAMEN through `ramen_a` (loaded at ce_a) where its ce_a registers' terms read it and RAMEN itself in
+  their D nets, so the registered stall's inputs agree on the clock PRC changes.
+- **The mode branch (sequencer) and the RAMEN 0 bodies of REP STM and REP MOVBK** (the RAMEN delta design,
+  build/overseer/ramen-design2 DELTA.md; the user's ruling 2026-11-24: second bodies for these two only). A JC
+  word naming the condition DN with the `vk` bit (uasm `rz`, `jc=DN:label rz`) jumps when RAMEN is 0
+  (`cond_v` / `cond_a`: `word.vk ? !ramen_a : c_dn`; DN without vk is the divide's dividend sign, as before;
+  `ramen_a` is RAMEN at ce_a so tick A's and tick B's next addresses agree on the clock PRC changes). The
+  assembler allows vk on a jump on DN only as `rz` on JC. The two REP heads' shared delay is one word shorter
+  and its last word is the mode branch, a word with no act at RAMEN 1 (every RAMEN 1 clock kept). The RAMEN 0
+  bodies are silicon's measured shapes in the core's word kinds: REP STM tests the count in front of each
+  write (the index's write-back word bus-idle: an element max(W + 7, L + 4)), the last element has one word
+  more in front of its write, F behind a write does not wait (E2), and the exit is a bus-idle word, five words
+  and E; REP MOVBK runs the destination's words under the read, waits for the datum on the word that takes it,
+  tests the count in front of the write. Why silicon's RAMEN 0 order differs is not explained (DELTA.md 1.3).
+- **The fetch chain's request mark `ych` (bus unit) is cleared at the boundary** too (`ex && wkd` in `ych_a`): the
+  mark belongs to the instruction that made the request. With RAMEN 1 no boundary falls between a request word
+  and its grant; with RAMEN 0 a store that ended early (its post on the dispatch word) no longer gives way to
+  the chain's next fetch (LCHW), the M90 pair `26 89 07 ; 26 89 57 02`. No RAMEN term in the bus unit.
+- Not built here (their current timing kept): CALL / BRK pushes, PUSH R's one gap, the read side (POP R, RETI,
+  RET far, MOVBK and CMPBK single, the REP compares).

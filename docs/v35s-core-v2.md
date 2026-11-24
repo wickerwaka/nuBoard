@@ -4380,3 +4380,27 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   each behind a store lead, PREPARE 8,1 at waits, the REP compares untried, PUSH DS0; at
   RAMEN 1 BRKV taken differs behind every full-queue lead (first fetch three clocks later
   on silicon) and PREPARE at j0 / j1 alignment 0.
+- **2026-11-24, work order 46 landed: RAMEN 0 on the write side (gate build/overseer/land46
+  against land45).** `ramen` (PRC bit 6) enters v35_useq and v35_eu (the user's ruling; no
+  other port, the budget untouched, no RAMEN term in the bus unit). At RAMEN 0 a routine's
+  end rides on its last two words: the next opcode's pop and the dispatch on marked words
+  (the mark accepted only on NEXT / JMP / CALL / RET words and a LOOP's exit; the assembler
+  checks on the packed image that the decode selects exactly the marked words, after the
+  trial's decode was found to match the divide-error word); the prefix clear one word
+  behind E; a second mark (nb with bi) for XCH mem and the memory shifts' counter step; REP
+  STM and REP MOVBK as second bodies entered by a jump on DN with vk (`rz`), for these two
+  only; the fetch-chain mark `ych` cleared at the instruction boundary. Corpus and pin
+  records: 0 runs differ from land45 (30,197 of 30,536); every program-set line equal;
+  timing +2.587 / +2.643 / +2.867 ns; 9,764 LUT4, 2,675 FF, 36 RAM_5K; ROM 1,926 to 1,961
+  words. Store sets, whole windows RAMEN 1 / RAMEN 0: f5_ws 55 of 55 / 67 of 67; f5_wt 676 /
+  612 of 676; f5_wu 588 / 419 of 592; f5_wv b y 344 / 344 of 344; f5_wv_r 84 / 84; groups c
+  186 / 0 of 188 and d 59 / 16 of 72. Exact at RAMEN 0: word and byte stores at 0 waits,
+  word stores with READY held to 18.5 clocks, the pair `26 89 07 ; 26 89 57 02`, REP STM
+  and REP MOVBK. Not exact at RAMEN 0, on RAMEN 1 timing: CALL, BRK, PUSH R, POP R, RETI,
+  RET far, MOVBK / CMPBK single, the REP compares, PREPARE, PUSH DS0 (work order 47 and
+  the fourth design round). The store sets are in the gate as a report: per program the
+  equal-window count, which may not go down (the user's ruling). Rulings of the day for the
+  third design round: words under the access and late posts accepted with each pin-read
+  word count OPEN; codes fa / p1 / p0 allowed; one access-wait signal useq to eu, the pair
+  ceiling 3 to 4, useq out 23 to 24, eu in 38 to 39; the 2-wait residue (BRK's third push,
+  PREPARE 8,1, CALL near / far one window each) recorded open, not chased.
