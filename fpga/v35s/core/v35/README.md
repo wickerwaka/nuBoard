@@ -10123,3 +10123,42 @@ no opcode compare outside the generated decode. Record: build/overseer/wo42/rtl.
   released on the write's first clock (bus-idle). `st_imm8` keeps m00, d8, d16 (`paths=`). Every
   prelude and window-setup SFR store is this form. The loader's decode text (v35_umdsp,
   v35_umimm, v35_umodrm, v35_upage) is byte-identical.
+
+## Work order 43: the acknowledge where silicon has it (the entry's second IVEC word)
+
+Built on c1127f9 (work order 41 landed, the eleventh request-passage probe). Source: passage.py
+f5_pl / pn / pq / pr / po (build/overseer/passage11 RESULTS) and passage8 (f5_pi_*). No port, no
+integer, no new ALU code. Record: build/overseer/wo43/rtl.md.
+
+- **The acknowledge is the entry's word on the boundary + 10** (V0 - 6 in the core's clocks), not its
+  first word. The entry asks for its vector on its first IVEC word, as before (SIGMA names the kind
+  and the vector; the bank switch, the macro service, DMA and INT branch on it there), and
+  acknowledges on a second IVEC word (urom/trap.uasm `iv_c` and zz_late.uasm `intr_k`: the shared
+  delay shortened by one, the IVEC word in its place; `iv_t`, the word behind it, at the ROM's end).
+  v35_intc tells the two strobes apart by `ak_1` (the take's first IVEC has executed; cleared by the
+  next take): on the second (`ak_l`) the taken level is set in ISPR, NMI's request is cleared and
+  **the scan is restarted** (`rs_ak`, into `rs_sc`: sc, sl and the INTP sampler's toggle) for a
+  controller request and NMI, whether a level is in service or not; BRK's entry has no IVEC, INT's
+  entry (int_a) and the single step acknowledge nothing. With level P in service the round is
+  2 (P + 1) from there: level 0 on V0 - 5 (silicon's V0 - 8 in T units). This is work order 41's
+  diagnostic restart (9 clocks behind the first IVEC) as a word of the entry, with no count.
+- **The bank switch** acknowledges on its own second IVEC word, xfer_dma.uasm `dm_q`'s jump to
+  `bsw_i`, one clock in front of the vectored entry's (silicon: level 0 11 clocks behind the
+  interrupted code's last fetch, the vectored entry 12; the core's two entries start on the same
+  word). A macro service keeps its single IVEC word and clears its IF there (unchanged).
+- **The request flag's clear is a register behind the acknowledge** (`ak_q`, as FINT's `fint_q`): the
+  taken source's IF is written on the clock after the word (f5_po_*: a count-out whose TOUT edge is
+  6.97 clocks or more in front of V0 is lost, from 5.97 kept; silicon -6.5 / -5.5; before -16.97 /
+  -15.97).
+- Between the take and the acknowledge (IE still 1, the IF still set, ISPR not yet set) a slot can
+  claim R; that R is dropped by the acknowledge's ISPR or IE's clear before it reaches the line, and
+  the restart clears the slot.
+- Measured (simulation against the socket): passage8's 58 comparable rows all on silicon's level-0
+  clock (were 0); the eleventh set's level 0 on V0 - 8 in all twelve waits / boundary configurations,
+  NMI's restart with and without a level in service, none for BRK (rows with silicon's Z: pl 132 / 132,
+  pn_brk / nmi / reti 24 / 24, pq 16 / 16, pr_vec 24 / 24); f5_pe_h4 first clocks 4 / 9 / 13, f5_pf_a /
+  c 14 / 19 / 1; every module gate and the first ten passage sets unchanged. Not on silicon: the bank
+  switch against its handler's first fetch (the core's bank entry is 3 clocks short), and the order of
+  the later takes in f5_pe_h4 / f5_pf_a / f5_pf_c (se1, tm0, p0 for silicon's se1, p0, tm0: silicon's
+  scan behind the second take, entered behind a RETI's refetch, is a clock later than its first take's
+  rule; record D).

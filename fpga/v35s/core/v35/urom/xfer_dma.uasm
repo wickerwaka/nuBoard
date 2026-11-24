@@ -33,7 +33,7 @@ routine dm_q why="(F4c) a negative IVEC after the macro service's: DMA or the ba
     alu=INC ax=SIG wid=WORD                 ; SIGMA <- the kind + 2 (0: a DMA transfer)
     jnc=SNZ:dmv                             ; the DMA transfer
     alu=PASS ax=TB wid=WORD                 ; SIGMA <- the kind again: {1, the level}
-    jmp=bsw_i                               ; the bank switch
+    alu=IVEC jmp=bsw_i                      ; (WO43) the bank switch; its acknowledge (the take's second IVEC: SIGMA the kind again, the source's IF cleared, its level set in ISPR, the scan restarted): a clock in front of the vectored entry's (passage11 pr_bank)
 
 routine dmv why="(F4c) DMA: one transfer through the channel block (f4_dma); function only"
 ; ---- TC first (the last transfer's TC pin is known before its cycle)

@@ -597,7 +597,9 @@ endmodule
 //             point takes the offer, NMI, a macro service, DMA or the single step (`igo` /
 //             `sgo`, the take strobes); STOP's settling count and HALT's release; `iack` (the entry's
 //             IVEC word) clears the taken source's IF and sets its level in ISPR (NMI: clears
-//             its request); FINT clears ISPR's highest-priority bit (f3_prio)
+//             its request); (WO43) on the entry's second IVEC word (the acknowledge, `ak_l`), and
+//             it restarts the scan there (a macro service: its one IVEC word clears its IF);
+//             FINT clears ISPR's highest-priority bit (f3_prio)
 //   HALT      `wake`: NMI or any IF with MK 0 (and MS 0) ((WO33) at its level's offer slot, through
 //             the offer's passage: below); f3_vec: a masked request does not
 //             release HALT
@@ -630,7 +632,7 @@ module v35_intc (
     input  wire        halted,          // the sequencer's HALT stall (its register)
     input  wire        w_stop,          // (F4d) the word is STOP's halt word (a level)
     input  wire        x_stop,          // ... and it executes (tick B)
-    input  wire        iack,            // the entry's IVEC word executes (ce_a strobe)
+    input  wire        iack,            // an IVEC word executes (ce_a strobe; (WO43) the entry's second: the acknowledge)
     input  wire        fint,            // FINT executes (ce_a strobe)
     input  wire        int_on,          // (F3b) the INT request (v35_sfr's register)
     input  wire        ie,              // (F4p) PSW.IE (the EU's register): a group whose first
@@ -834,6 +836,27 @@ module v35_intc (
             fint_q <= 1'b0;
         else if (ce_a)
             fint_q <= fint;
+    // (WO43) the acknowledge (passage11 RESULTS, the rule): the entry asks for its vector on its
+    // first IVEC word (the decision: SIGMA names the kind and the vector, nothing else changes)
+    // and acknowledges on its second, the entry's word on the boundary + 10 (V0 - 6): the taken
+    // source's IF cleared, its level set in ISPR, NMI's request cleared and the scan restarted
+    // there (silicon's level 0 two scan clocks behind it, V0 - 8 in T units; the flag's clear
+    // 10 to 12 clocks behind the old IVEC acknowledge, f5_po_*). `ak_1`: the take's first IVEC
+    // has executed (cleared by the next take), so the strobe on `iack` with it set is the
+    // acknowledge. A macro service has one IVEC word and keeps its IF's clear there; a DMA take,
+    // INT and the single step acknowledge nothing here
+    reg         ak_1 = 1'b0;
+    wire        ak_l = iack && ak_1;
+    // (WO43) the taken source's IF is written back a register behind the acknowledge word (the
+    // source read and decoded on the word, its flag's write the clock after it, as FINT's clear:
+    // `fint_q`): silicon's flag clear is 10 to 12 clocks behind the cores' old acknowledge, the
+    // restart 9 (passage11 section 4: f5_po_* lost up to -6.5, kept from -5.5)
+    reg         ak_q = 1'b0;
+    always_ff @(posedge clock)
+        if (!reset_n)
+            ak_q <= 1'b0;
+        else if (ce_a)
+            ak_q <= ak_l && tk_k[1];
     function automatic logic [7:0] fint_f(input logic [7:0] p);
         fint_f = p;
         for (int b = 7; b >= 0; b--)
@@ -857,8 +880,13 @@ module v35_intc (
             mc_ch <= 3'd0;
             ms_mode <= 3'd0;
             ms_dir <= 1'b0;
+            ak_1 <= 1'b0;
         end else if (ce_a) begin
             lv <= (frz || !dv) ? {lv[3:1], lvn[0]} : lvn;
+            if (take_n || take_i || take_s || take_m || take_d)
+                ak_1 <= 1'b0;
+            else if (iack)
+                ak_1 <= 1'b1;
             tk_ms <= tk_ms;
             if (take_m) begin
                 tk_k <= 3'd0;
@@ -890,8 +918,8 @@ module v35_intc (
             for (int k = 0; k < 15; k++) begin
                 if (wr && ic_we[k])
                     ic_if[k] <= ic_wd[k];
-                else if (iack && (tk_k[1] || tk_ms) && tk_i == 4'(k))
-                    ic_if[k] <= 1'b0;   // (F4b) a macro-service take: IF cleared, ISPR kept
+                else if ((ak_q || (iack && tk_ms)) && tk_i == 4'(k))
+                    ic_if[k] <= 1'b0;   // (F4b) a macro-service take: IF cleared, ISPR kept; (WO43) a vectored take's a register behind the acknowledge
                 if (ms_end && tk_i == 4'(k))
                     ic_if[k] <= 1'b1;   // (F4b) the service's end: the vectored request
                 if (k < 3 && ip_set[k % 3])
@@ -899,13 +927,13 @@ module v35_intc (
                 if (pf_set[k])
                     ic_if[k] <= 1'b1;
             end
-            if (iack && tk_k[1])
+            if (ak_l && tk_k[1])
                 ispr <= ispr | (8'd1 << tk_l);
             else if (fint_q)
                 ispr <= fint_f(ispr);
             if (nd == 4'd1)
                 nmi_p <= 1'b1;          // (qprobe round 12-13) NMI's edge after the pin's delay
-            else if (iack && tk_k[2])
+            else if (ak_l && tk_k[2])
                 nmi_p <= 1'b0;
         end
     end
@@ -1036,7 +1064,10 @@ module v35_intc (
     reg        rs_k = 1'b0;
     wire       d_up = ie && !ie_dq;
     wire       rs_ie = ie_up && (d_up ? (!sl_1 && sl != 2'd1) : rs_k);
-    wire       rs_sc = ic_st || rs_ie;
+    // (WO43) and the acknowledge of a controller request or NMI (passage11: not BRK's entry, not
+    // INT's; NMI's with nothing in service too)
+    wire       rs_ak = ak_l && (tk_k[1] || tk_k[2]);
+    wire       rs_sc = ic_st || rs_ie || rs_ak;
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             ie_dq <= 1'b0;
@@ -1226,7 +1257,7 @@ module v35_intc (
                 hw_c <= hw_c - 4'd1;
             ms_v <= kw.v && kw.ms && {1'b0, kw.lvl} < isp_l;
             ms_i <= kw.idx;
-            nmi_v <= nmi_p && !(iack && tk_k[2]);
+            nmi_v <= nmi_p && !(ak_l && tk_k[2]);
             // (F3b) INT releases HALT with IE 0 (f3_int); (WO35) with IE 1 R releases it through
             // the line one stage before the offer reaches the sample (WO33's place: the E word
             // after HALT executes in the clock the offer arrives and the dispatch takes it as a

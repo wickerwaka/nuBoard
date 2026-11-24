@@ -146,8 +146,8 @@ routine intr_k why="OPEN: silicon longer than the book (measured, the extra word
     d1=TB s1=SIG jc=SGN:bsk_q               ; a bank-switch take, a macro service or a DMA transfer (tmpb <- the kind)
     d1=ADDR s1=ZERO jnc=SNZ:int_a           ; the INT take: the acknowledge cycles; the address register 0
     d1=ADDR s1=SIG                          ; the vector's address into the address register (intr's iv_c)
-    open call=w5                            ; OPEN: (qprobe round 12) six words with no act (the call and the shared delay's 5)
-    open jmp=brk_y                          ; OPEN: (qprobe round 12) a word with no act; INT 3's request word
+    open call=w4                            ; OPEN: (qprobe round 12) five words with no act (the call and the shared delay's 4)
+    alu=IVEC jmp=iv_t                       ; (WO43) the acknowledge (intr's iv_c)
 bsk_q: alu=INC2 ax=SIG wid=WORD            ; SIGMA <- the kind + 2 (0: a DMA transfer)
     jnc=SNZ:dmk                             ; the DMA transfer (the string refetched)
     alu=PASS ax=TB wid=WORD jmp=bsw_q       ; SIGMA <- the kind again (tmpb); a macro service or a bank switch: intr's path
@@ -206,3 +206,8 @@ dk_da: alu=DMS ax=TB ay=ONE wid=WORD        ; SIGMA <- DAR stepped
 dk_e: alu=MSPC ax=TC wid=WORD               ; SIGMA <- the offset to resume at
     flush                                   ; FLUSH: the stream from it
     e                                       ; E: the interrupted instruction again
+
+; (WO43) the vectored entry's word behind the acknowledge (trap.uasm iv_c, intr_k): here so that
+; no other routine's ROM address moves
+routine iv_tail why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12) intr's word with no act in front of INT 3's request word; (WO43) moved here behind the acknowledge"
+iv_t: open jmp=brk_y                        ; OPEN: (qprobe round 12) a word with no act; INT 3's request word (the eleventh: the cycle 16 clocks after the boundary)

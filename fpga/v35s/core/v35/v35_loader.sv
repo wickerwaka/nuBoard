@@ -365,7 +365,10 @@ module v35_loader
     typedef struct packed {
         logic       wants_op, e_pop, dispm, d1hm, ds2;
         v35_pop_e   pop;
-        v35_udec_t  ds;
+        // the decode's len / e2 / pg as flat members, not the decode struct: Quartus 17
+        // mis-synthesizes a nested member read of a function's struct argument
+        logic [2:0] ds_len;
+        logic       ds_e2, ds_pg;
         logic [2:0] need, umr_s, umr_o, upg_s;
         logic       s_v;
         logic [1:0] sn;
@@ -380,10 +383,10 @@ module v35_loader
         ta.opop = x && L.wants_op && !fl;
         ta.epop = x && L.e_pop;
         ta.mpop = ta.epop && L.ds2;               // ... and its second byte
-        add = (ta.mpop && L.ds.e2) ? L.ds.len - 3'd1
-            : (ta.mpop && L.ds.pg) ? L.upg_s        // (MX3c) the second byte's ModR/M and immediate
-            : ta.mpop ? L.ds.len + L.umr_s
-            : ta.epop ? L.ds.len
+        add = (ta.mpop && L.ds_e2) ? L.ds_len - 3'd1
+            : (ta.mpop && L.ds_pg) ? L.upg_s        // (MX3c) the second byte's ModR/M and immediate
+            : ta.mpop ? L.ds_len + L.umr_s
+            : ta.epop ? L.ds_len
             : (ta.opop && L.pop == PP_MODRM) ? L.umr_o
             : (ta.opop && L.dispm && !L.d1hm) ? L.upg_s : 3'd0;
         ta.need_n = fl ? 3'd0 : L.need + add - (ta.opop ? 3'd1 : 3'd0);
@@ -408,7 +411,7 @@ module v35_loader
         ln.d1hm = dec1.has_modrm;
         ln.ds2 = ds2;
         ln.pop = pop;
-        ln.ds = ds;
+        ln.ds_len = ds.len; ln.ds_e2 = ds.e2; ln.ds_pg = ds.pg;
         ln.need = need;
         ln.umr_s = umr_s;
         ln.umr_o = umr_o;
@@ -461,17 +464,17 @@ module v35_loader
         zo1 = l.wants_op && !fw;
         zm1 = l.e_pop && l.ds2;
         zt1 = (zo1 ? 3'd1 : 3'd0) - l.need;
-        ce2 = zm1 && l.ds.e2;
-        cpg = zm1 && !l.ds.e2 && l.ds.pg;
-        cus = zm1 && !l.ds.e2 && !l.ds.pg;
+        ce2 = zm1 && l.ds_e2;
+        cpg = zm1 && !l.ds_e2 && l.ds_pg;
+        cus = zm1 && !l.ds_e2 && !l.ds_pg;
         cep = !zm1 && l.e_pop;
         cuo = !zm1 && !l.e_pop && zo1 && l.pop == PP_MODRM;
         cug = !zm1 && !l.e_pop && !(zo1 && l.pop == PP_MODRM) && zo1 && l.dispm && !l.d1hm;
-        zc_f.k = fw || (ce2 && l.ds.len - 3'd1 == zt1) || (cep && l.ds.len == zt1)
+        zc_f.k = fw || (ce2 && l.ds_len - 3'd1 == zt1) || (cep && l.ds_len == zt1)
                  || (!zm1 && !l.e_pop && !(zo1 && l.pop == PP_MODRM)
                      && !(zo1 && l.dispm && !l.d1hm) && zt1 == 3'd0);
         cu = !fw && (cus || cuo);
-        ts = cus ? zt1 - l.ds.len : zt1;
+        ts = cus ? zt1 - l.ds_len : zt1;
         i1 = cus ? s6[5:3] : o6[5:3];
         i0 = cus ? s6[2:0] : o6[2:0];
         za1 = ts - i1;
@@ -784,7 +787,7 @@ module v35_loader
         lx.d1hm = d1_nx.has_modrm;
         lx.ds2 = ds2_nx;
         lx.pop = pop_nx;
-        lx.ds = ds_nx;
+        lx.ds_len = ds_nx.len; lx.ds_e2 = ds_nx.e2; lx.ds_pg = ds_nx.pg;
         lx.need = need_b;
         lx.s_v = s_v_nx;
         lx.sn = sn_nx;

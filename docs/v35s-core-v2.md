@@ -4267,3 +4267,21 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   each (570 of 592 equal): BRKV 8 of 8, MOV byte [IX+d8],imm8 8 of 8, CALL far 3, PREPARE 3.
   Not run: pin interrupt or NMI entry, 2 waits and READY, block I/O, bit / BCD forms on
   memory, DMA. Not built.
+- **2026-11-24, acknowledge placement and scan restart (work order 43, landed), with the
+  loader's flat decode fields.** The vectored entry's acknowledge of the controller moves to
+  its silicon place (a second word of the entry at IVEC + 9; the decision and the vector stay
+  at IVEC), and does the in-service set, the request flag's clear, NMI's clear and the scan
+  restart; the flag's clear is a register behind it. No port, no counter. Builder's counts
+  against the eleventh probe set (Z - R equal to silicon, before / after): controller
+  requests 44 / 132 of 132; BRK 0 / 8; NMI 1 / 8 and 0 / 8; vectored entry rows 0 / 24. The
+  flag's clear: lost up to 6.97 clocks before the vector read and kept from 5.97 (silicon
+  6.5 / 5.5; before 16.97 / 15.97). Lattice clocks off 6,564 to 6,552. Lost, by user ruling:
+  f5_pr_bank_p3_1 10 to 8 and f5_pr_bank_p3_2 10 to 6 of 44 windows; the core's bank-switch
+  entry is 3 clocks short from last fetch to the handler's first fetch (27 / 25 for
+  silicon's 30), which is older than this work and open. Not built: the second take's scan
+  one clock later than the first take's rule (pe_h4's order of two later takes); INT's 3 / 5
+  clocks; EI's one clock. v35_loader.sv: `v35_lin_t` carries the decode's len / e2 / pg as
+  flat members (Quartus 17 mis-synthesizes a nested member read of a function's struct
+  argument; found on the M90 DE10 build). Gate (land43 against land42): every line of
+  verify.out identical, pin records 0 differ; timing +2.640 / +2.980 / +2.959; 9,639 LUT4,
+  2,659 FF.

@@ -168,9 +168,16 @@ routine intr why="OPEN: silicon longer than the book (measured, the extra words 
 ; request word (xfer.uasm brk_y), entered so that the first cycle starts 16 clocks after the
 ; boundary (INT 3's: 12; three words more of entry); tmpc holds the interrupted instruction's
 ; start (pushed last), the address register the vector's address
+; (WO43) the acknowledge proper (the source's IF cleared, its level set in ISPR, NMI's request
+; cleared, the in-service scan restarted: v35_intc `ak_l`) is the take's second IVEC word, the
+; entry's word on the boundary + 10 (V0 - 6 in the core's clocks): passage11 (f5_pl / pn / pq /
+; po), silicon's level-0 clock two scan clocks behind it and the request flag's clear beside it.
+; The first IVEC (above) only names the kind and the vector (the branches); a macro service
+; clears its IF there (its only IVEC); the bank switch acknowledges on xfer_dma.uasm's jump to
+; bsw_i, a clock earlier (passage11 pr_bank); INT's entry (int_a) and the single step have none
 iv_c: d1=ADDR s1=SIG                        ; the vector's address (IVEC's or the INT acknowledge's) into the address register
-    open call=w5                            ; OPEN: (qprobe round 12) six words with no act (the call and the shared delay's 5)
-    open jmp=brk_y                          ; OPEN: (qprobe round 12) a word with no act; INT 3's request word (the eleventh: the cycle 16 clocks after the boundary)
+    open call=w4                            ; OPEN: (qprobe round 12) five words with no act (the call and the shared delay's 4)
+    alu=IVEC jmp=iv_t                       ; (WO43) the acknowledge (the take's second IVEC: the source's IF cleared, its level set in ISPR, NMI's request cleared, the scan restarted; SIGMA as the first's): the boundary + 10, V0 - 6 (passage11); then INT 3's request word (zz_late.uasm iv_t: the cycle 16 clocks after the boundary)
 
 ; ---- (F3b) INT: the acknowledge (silicon, f3_int: two /INTAK pulses, no strobe, the vector on
 ; D7-D0; the harness answers both), the second's byte the vector; then the vectored entry (no
