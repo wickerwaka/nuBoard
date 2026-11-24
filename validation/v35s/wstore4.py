@@ -17,6 +17,10 @@ Groups (programs f5_wv_<group>_r1 / _r0):
             x 7; NOP x 3 ; INC x 4; MOV CW,AW x 2 ; INC x 4; the store again ; INC x 6) behind two leads
     r       REP STMW with CW 1, 2, 5, REP STMB with CW 3, REP MOVBKW with CW 1, 3 and REP MOVBKB with CW 3, code,
             stack and data in block 0 at 0, 1 and 2 waits, two leads, followed by MOV AW,[0890h] ; INC AW x 6
+    c       wstore3's frames where rounds 1 to 3 have no data: CALL near / reg / mem / far, RETI, RET far, POP R,
+            BRK 3 and PREPARE 8,1 at 1 and 2 waits behind f0, j0, pu, sb and at 0 waits behind pu, sb; PUSH R at 1
+            and 2 waits
+    d       BRK 3, BRKV, PREPARE 8,0 and 8,1 at 0 waits behind every lead f0 .. f3, j0 .. j4
     y0, ya, yb, yc
             the data in block 1 (20100h up, WTC field 3: 2 waits and READY, PMC1 bit 7), the code and the stack in
             block 0 at 0 waits or 1 wait; READY low from a block-1 cycle's /MREQ fall for 0 (y0: READY stays
@@ -199,8 +203,28 @@ class Program(ph.Program):
         return self._built
 
 
+C_Y = ("cn", "cr", "cm", "cf", "rt", "rf", "or", "bk", "p1")
+C_POP = ("rt", "rf", "or")          # the forms that take a frame from the stack: no push lead in front (rd instead)
+C_WINS = ([(y, "rd" if l == "pu" and y in C_POP else l, al, w) for y in C_Y for w in (1, 2)
+           for l in ("f0", "j0", "pu", "sb") for al in (0, 1)]
+          + [(y, "rd" if l == "pu" and y in C_POP else l, al, 0) for y in C_Y for l in ("pu", "sb") for al in (0, 1)])
+CP_WINS = [("pr", l, al, w) for w in (1, 2) for l in ("f0", "j0") for al in (0, 1)]
+D_WINS = [(y, l, al, 0) for y in ("bk", "bv", "p0", "p1") for l in ("f0", "f1", "f2", "f3", "j0", "j1", "j2", "j3", "j4")
+          for al in (0, 1)]
+
+
 def programs():
+    from . import wstore3 as w3
     progs = {}
+    for r in (1, 0):
+        name = f"{PFX}_c_r{r}"
+        progs[name] = Program(name, [w3.window(y, l, al, r, w) for y, l, al, w in C_WINS]
+                              + [w2.window(y, l, al, r, w) for y, l, al, w in CP_WINS],
+                              f"group c: CALL kinds, RETI, RET far, POP R, BRK 3, PREPARE 8,1 and PUSH R at 1 and 2 waits "
+                              f"and behind store leads, with PRC = {PRCV[r]:02X}h")
+        name = f"{PFX}_d_r{r}"
+        progs[name] = Program(name, [w3.window(y, l, al, r, w) for y, l, al, w in D_WINS],
+                              f"group d: BRK 3, BRKV, PREPARE 8,0 / 8,1 behind every lead, with PRC = {PRCV[r]:02X}h")
     for r in (1, 0):
         name = f"{PFX}_b_r{r}"
         progs[name] = Program(name, [bwindow(y, l, al, r, f) for y, l, al, f in B_WINS],
@@ -293,7 +317,7 @@ def main():
     elif a.action == "sim":
         run_set(names, "sim", a.tag, progs)
     elif a.action == "pair":
-        for g in a.names or ["b", "r"] + list(READY):
+        for g in a.names or ["b", "r", "c", "d"] + list(READY):
             pair(g, a.ref + a.tag, progs)
     elif a.action in ("repeat", "gate"):
         ref, cand = ("socket", "socket-2") if a.action == "repeat" else (a.ref, a.cand)

@@ -4362,3 +4362,21 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   silicon's clocks but the discarded fetch on the flush clock is issued at 1016Eh for
   silicon's 0016Eh (PS written two words before the FLUSH); F35 CALL far ; RET far imm (2
   runs) now first differ at RET far imm's stack read, 2 clocks early.
+- **2026-11-24, RAMEN design, third round (build/overseer/ramen-design3/DESIGN3.md;
+  wstore4.py groups c and d, f5_wv_c_* / f5_wv_d_*, 520 windows, two captures equal).** Trial
+  on the delta trial with work order 45, not landed. The read side, PUSH R, CALL and BRK fit
+  at RAMEN 0 on the existing bodies, no second body: (1) an access wait `fa`, an F word that
+  takes nothing and waits for its cycle at RAMEN 1 only, the datum taken by an ordinary F in
+  front of the next post; (2) plain words under an access, which RAMEN 1 runs inside the
+  cycle (at most three) and RAMEN 0 counts; (3) mode posts `p1` / `p0`, the same cycle posted
+  on one word at RAMEN 1 and one to three words later at RAMEN 0; (4) the request-word wait
+  read for the EU's own write (two clocks or more left), both modes. CALL's push is not
+  waiting on the FLUSH, the target or the queue: it is posted a fixed number of words later
+  (near 3, reg / mem 2, far 1 and 2). Trial RAMEN 1 / RAMEN 0: f5_ws 55 / 67 of 67; f5_wt
+  676 / 660 of 676; f5_wu 588 / 561 of 592; f5_wv b r y 428 / 428; group c 186 / 161 of 188;
+  group d 59 / 59 of 72; f5_pj 756 of 756. Why silicon has the words under the access and
+  the late posts is read from the pins, not explained; the design says only why RAMEN 1
+  hides them. Open: BRK's third push a clock late at 2 waits, CALL near / far one window
+  each behind a store lead, PREPARE 8,1 at waits, the REP compares untried, PUSH DS0; at
+  RAMEN 1 BRKV taken differs behind every full-queue lead (first fetch three clocks later
+  on silicon) and PREPARE at j0 / j1 alignment 0.
