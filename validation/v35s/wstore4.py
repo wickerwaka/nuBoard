@@ -29,6 +29,30 @@ Groups (programs f5_wv_<group>_r1 / _r0):
             `26 89 07 ; 26 89 57 02` three times; the same pair in a DBNZ loop of three; MOV [IX],AW ; CMP [IX],AW
             twice (DS0 in block 1); MOV DS1:[BW],AW four times; MOV DS1:[BW],AW ; PUSH AW twice. Each followed by
             INC AW x 6.
+    e       (round 5) the REP compares ending on their condition and on the count: REPE / REPNE CMPBKW and REPE /
+            REPNE CMPMW with CW 4 over arrays the window's setup writes, ending on the first, second or third
+            element (e0 / e1 / e2) or on the count (ex: CW 3, the condition never met), and REPE CMPBKB / REPNE
+            CMPMB ending on the third byte, at 0, 1 and 2 waits behind f0 and j0
+    f       (round 5) CALL near, CALL far and PUSH AW behind a store lead whose block has its own waits: the lead
+            is `26 89 07` (MOV DS1:[BW],AW) with DS1 = 2000h (block 1 at 0, 1, 2 waits: leads t0 t1 t2) or DS1 = 0
+            (block 0, the code's and the stack's block: lead s0), the code and the stack at 0, 1 and 2 waits
+    i       (round 5) group f's leads in front of instructions with operand bytes: MOV BW,imm16, MOV BL,imm8, ADD AW,imm16,
+            PUSH imm16, BR near, BR short, the code at 0 and 2 waits
+    g       (round 5) PREPARE 8,L for L = 0 .. 4 at 0, 1 and 2 waits behind f0, j0, pu, sb
+    sn, s0 .. sa  (round 6, RAMEN 1 only) code fetches stretched by READY: ROL BP,16 (its sixth word is a commit
+            word) behind f0 .. f3, j0, j1, then MOV DS1:[BW],AW into block 1 at 0 waits; sn: the code at 0, 1, 2 waits
+            without READY; s0 .. sa: the code at 2 waits and READY, READY low 0, 2, 3, 4, 5, 6, 7, 8, 10 clocks from
+            /MREQ's fall of a block-0 cycle
+    t02 .. t14  (round 7, RAMEN 1 only) groups s's window with READY low 1.0, 1.5 .. 7.0 clocks (tNN: NN half
+            clocks): the four windows whose commit word meets a chained fetch (f0 al1, f1 al0, f2 al1, f3 al0) and
+            two controls (f0 al0, j0 al0)
+    u1 .. u8  (round 8, RAMEN 1 only) groups y's shapes sc (MOV [IX],AW ; CMP [IX],AW twice) and rm (REP MOVBKW)
+            with the data in block 1 at 2 waits and READY, READY low 1, 2, 3, 4, 5, 6, 8 clocks from /MREQ's fall of
+            a block-1 cycle: a data read whose F waits for the datum under a swept READY
+    ha, hc  (round 5) the REP STM / REP MOVBK exit with a fetch running: the code in block 0 at 2 waits and READY
+            (READY low 10 (ha) or 12.5 (hc) clocks from /MREQ's fall of a block-0 cycle), the destination in
+            block 1 at 0 waits (DS1 = 2000h); REP STMW CW 1 / 2, REP STMB CW 1, REP MOVBKW CW 1 / 2 behind f0 and
+            j0 .. j4
 Receipts: validation/v35s/receipts/f5-<name>-<backend>.json.
 """
 
@@ -192,6 +216,146 @@ def ywindow(shape, lead, al, r, wc):
     return ph.Window(meta, setup, body)
 
 
+# ------------------------------------------------------------------ round 5: groups e, f, g, h
+_w16 = lambda v: [v & 0xFF, v >> 8]                         # noqa: E731
+U, V = 0x1111, 0x2222
+XLEADS = dict(w2.LEADS)
+_SL = (ES + [0x89, 0x07], "MOV DS1:[BW], AW   ; lead")
+XLEADS.update({k: (w2._FIL, _SL) for k in ("s0", "t0", "t1", "t2")})
+# name: (bytes or a function of the next instruction's offset, text, options: cw, bp, prep)
+XS = {
+    "cn": ([0xE8, 0x00, 0x00], "CALL $+3", {}),
+    "cf": (lambda n: [0x9A] + _w16(n) + _w16(CODE >> 4), "CALL far next", {}),
+    "pu": ([0x50], "PUSH AW", {}),
+    "es": (ES + [0x89, 0x07], "MOV DS1:[BW], AW", {}),
+    "mi": ([0xBB, 0x34, 0x12], "MOV BW, 1234h", {}),
+    "ib": ([0xB3, 0x12], "MOV BL, 12h", {}),
+    "ai": ([0x05, 0x34, 0x12], "ADD AW, 1234h", {}),
+    "ui": ([0x68, 0x34, 0x12], "PUSH 1234h", {}),
+    "bn": ([0xE9, 0x00, 0x00], "BR near $+3", {}),
+    "bs": ([0xEB, 0x00], "BR short $+2", {}),
+    "rs1": ([0xF3, 0xAB], "REP STMW   ; CW 1", {"cw": 1}),
+    "rs2": ([0xF3, 0xAB], "REP STMW   ; CW 2", {"cw": 2}),
+    "rb1": ([0xF3, 0xAA], "REP STMB   ; CW 1", {"cw": 1}),
+    "rm1": ([0xF3, 0xA5], "REP MOVBKW   ; CW 1", {"cw": 1}),
+    "rm2": ([0xF3, 0xA5], "REP MOVBKW   ; CW 2", {"cw": 2}),
+}
+for _l in range(5):
+    XS[f"l{_l}"] = ([0xC8, 0x08, 0x00, _l], f"PREPARE 8, {_l}", {"bp": 0x0EF0})
+# the REP compares: (the opcode bytes, text, block compare?, the condition met on equal?)
+_RC = {"ek": ([0xF3, 0xA7], "REPE CMPBKW", True, False), "nk": ([0xF2, 0xA7], "REPNE CMPBKW", True, True),
+       "es": ([0xF3, 0xAF], "REPE CMPMW", False, False), "ns": ([0xF2, 0xAF], "REPNE CMPMW", False, True),
+       "eb": ([0xF3, 0xA6], "REPE CMPBKB", True, False), "nb": ([0xF2, 0xAE], "REPNE CMPMB", False, True)}
+for _n, (_b, _t, _blk, _eq) in _RC.items():
+    for _k in (0, 1, 2, None):
+        # the arrays: the compare's two sides (SRC, or AW = U, against DST) equal in every element (REPE) or in
+        # none (REPNE), element _k the other way round: the element the instruction ends on
+        XS[_n + ("x" if _k is None else str(_k))] = (
+            _b, f"{_t}   ; CW {3 if _k is None else 4}, " + ("to the count" if _k is None else f"ends on element {_k}"),
+            {"cw": 3 if _k is None else 4, "prep": (_blk, _eq, _k)})
+
+
+def _prep(a, blk, eq, k):
+    def fill(base, v):
+        a.mov_r("AW", v)
+        a.mov_r("IY", base)
+        a.mov_r("CW", 4)
+        a.op([0xF3, 0xAB], f"REP STMW   ; four words at {base:04X}h <- {v:04X}h")
+    if blk:
+        fill(SRC, U)
+    fill(DST, V if eq else U)
+    if k is not None:
+        a.op([0xC7, 0x06] + _w16(DST + 2 * k) + _w16(U if eq else V),
+             f"MOV word [{DST + 2 * k:04X}h], {U if eq else V:04X}h   ; the element the compare ends on")
+
+
+def xwindow(y, lead, al, r, w, wl=0, ds1=0, ready=False):
+    """A lead, Y, MOV AW,[0890h], INC AW x 6: block 0 at `w` waits (with `ready`: 2 waits and READY), block 1 at
+    `wl`, DS1 = `ds1` in the window."""
+    yb, yt, opt = XS[y]
+    meta = dict(y=y, lead=lead, al=al, r=r, w=w, sp=None)
+
+    def setup(a):
+        oc.seg(a, "DS1", oc.ON)
+        oc.es_store(a, 0xFFEB, PRCV[r])
+        if ready:
+            oc.es_store(a, 0xFF0A, 0x80)                     # PMC1 bit 7: P17 is READY
+        oc.es_store(a, 0xFFE8, wl << 2 | (3 if ready else w), word=True)
+        oc.seg(a, "DS1", 0)
+        a.op([0xFC], "CLR1 DIR")
+        if "prep" in opt:
+            _prep(a, *opt["prep"])
+        if ds1:
+            oc.seg(a, "DS1", ds1)
+        a.mov_r("SP", STACK_TOP)
+        a.mov_r("IX", SRC)
+        a.mov_r("IY", DST)
+        a.mov_r("BW", BWV)
+        a.mov_r("CW", opt.get("cw", 1))
+        if "bp" in opt:
+            a.mov_r("BP", opt["bp"])
+        a.mov_r("AW", U)
+
+    def body(a):
+        ins = []
+        if "prep" in opt:
+            a.mov_r("AW", U)                # (the frame's marker port write in front of the body uses AW)
+        n = sum(3 if x == w2._FIL else len(x[0]) for x in XLEADS[lead])
+        if (len(a.b) + n & 1) != al:
+            a.nop()
+        for x in XLEADS[lead]:
+            if x == w2._FIL:
+                ins.append((CODE + len(a.b), "L", "ROL BP, 16"))
+                oc.fil(a)
+            else:
+                ins.append((CODE + len(a.b), "L", x[1].split("   ;")[0]))
+                a.op(x[0], x[1])
+        bs = yb(len(a.b) + len(yb(0))) if callable(yb) else yb
+        ins.append((CODE + len(a.b), "Y", yt.split("   ;")[0]))
+        a.op(bs, yt + "   ; Y")
+        for bs, text in FOLS["rd"]:
+            ins.append((CODE + len(a.b), "F", text.split("   ;")[0]))
+            a.op(bs, text)
+        ins.append((CODE + len(a.b), "T", "ROL BP, 16"))
+        oc.fil(a)
+        meta["ins"] = ins
+        oc.seg(a, "DS1", oc.ON)
+        oc.es_store(a, 0xFFE8, 0, word=True)
+        if ready:
+            oc.es_store(a, 0xFF0A, 0x00)
+        oc.es_store(a, 0xFFEB, PRCV[1])
+        a.mov_r("AW", 0)
+    return ph.Window(meta, setup, body)
+
+
+E_WINS = ([(n + k, l, al, w) for n in ("ek", "nk", "es", "ns") for k in ("0", "1", "2", "x") for w in (0, 1, 2)
+           for l in ("f0", "j0") for al in (0, 1)]
+          + [(n + "1", l, al, w) for n in ("eb", "nb") for w in (0, 1, 2) for l in ("f0", "j0") for al in (0, 1)])
+F_WINS = ([(y, "s0", al, w, 0, 0) for y in ("cn", "cf", "pu") for w in (0, 1, 2) for al in (0, 1)]
+          + [(y, f"t{wl}", al, w, wl, D1SEG) for y in ("cn", "cf", "pu") for w in (0, 1, 2) for wl in (0, 1, 2)
+             for al in (0, 1)])
+I_WINS = ([(y, "s0", al, w, 0, 0) for y in ("mi", "ib", "ai", "ui", "bn", "bs") for w in (0, 2) for al in (0, 1)]
+          + [(y, f"t{wl}", al, w, wl, D1SEG) for y in ("mi", "ib", "ai", "ui", "bn", "bs") for w in (0, 2) for wl in (0, 1, 2)
+             for al in (0, 1)])
+G_WINS = [(f"l{k}", l, al, w) for k in range(5) for w in (0, 1, 2) for l in ("f0", "j0", "pu", "sb") for al in (0, 1)]
+H_WINS = [(y, l, al, 2) for y in ("rs1", "rs2", "rb1", "rm1", "rm2") for l in ("f0", "j0", "j1", "j2", "j3", "j4")
+          for al in (0, 1)]
+# (round 6) code fetches stretched by READY: the filler's commit word against a chained fetch
+S_LEADS = ("f0", "f1", "f2", "f3", "j0", "j1")
+S_WINS = [("es", l, al, 2) for l in S_LEADS for al in (0, 1)]
+SN_WINS = [("es", l, al, w) for w in (0, 1, 2) for l in S_LEADS for al in (0, 1)]
+SREADY = {"s0": None, "s2": 2.0, "s3": 3.0, "s4": 4.0, "s5": 5.0, "s6": 6.0, "s7": 7.0, "s8": 8.0, "sa": 10.0}
+# (round 7) the READY hold in half-clock steps on the four windows whose commit word meets a chained fetch, and
+# two controls
+T_WINS = [("es", l, al, 2) for l, al in (("f0", 1), ("f1", 0), ("f2", 1), ("f3", 0), ("f0", 0), ("j0", 0))]
+TREADY = {f"t{k:02d}": k / 2 for k in range(2, 15)}        # READY low 1.0, 1.5 .. 7.0 clocks
+# (round 8) a READY-timed data read: groups y's shapes sc (store, compare: a read whose F waits for the datum) and
+# rm (REP MOVBKW from block 0) with the data in block 1 at 2 waits and READY, the hold swept in whole clocks
+U_WINS = [(sh, l, al, wc) for sh in ("sc", "rm") for wc in (0, 1) for l in ("f0", "j0") for al in (0, 1)]
+UREADY = {"u1": 1.0, "u2": 2.0, "u3": 3.0, "u4": 4.0, "u5": 5.0, "u6": 6.0, "u8": 8.0}
+HREADY = {"ha": 10.0, "hc": 12.5}       # READY low, CPU clocks from /MREQ's fall of a block-0 cycle
+
+
 class Program(ph.Program):
     """phase's frame with the READY block's page loaded and the /MREQ-timed READY setting (`m`)."""
     m = None
@@ -233,6 +397,55 @@ def programs():
         name = f"{PFX}_r_r{r}"
         progs[name] = Program(name, [bwindow(y, l, al, r, f, w) for y, l, al, f, w in R_WINS],
                               f"group r: REP STM / REP MOVBK by count, block 0 at 0, 1 and 2 waits, with PRC = {PRCV[r]:02X}h")
+    for r in (1, 0):
+        name = f"{PFX}_e_r{r}"
+        progs[name] = Program(name, [xwindow(y, l, al, r, w) for y, l, al, w in E_WINS],
+                              f"group e: the REP compares ending on their condition and on the count at 0, 1 and 2 "
+                              f"waits, with PRC = {PRCV[r]:02X}h")
+        name = f"{PFX}_f_r{r}"
+        progs[name] = Program(name, [xwindow(y, l, al, r, w, wl, ds1) for y, l, al, w, wl, ds1 in F_WINS],
+                              f"group f: CALL near / far and PUSH AW behind a store lead in a block with its own "
+                              f"waits, with PRC = {PRCV[r]:02X}h")
+        name = f"{PFX}_i_r{r}"
+        progs[name] = Program(name, [xwindow(y, l, al, r, w, wl, ds1) for y, l, al, w, wl, ds1 in I_WINS],
+                              f"group i: instructions with operand bytes and no access of their own behind a store "
+                              f"lead in a block with its own waits, with PRC = {PRCV[r]:02X}h")
+        name = f"{PFX}_g_r{r}"
+        progs[name] = Program(name, [xwindow(y, l, al, r, w) for y, l, al, w in G_WINS],
+                              f"group g: PREPARE 8,L for L = 0 .. 4 at 0, 1 and 2 waits, with PRC = {PRCV[r]:02X}h")
+    name = f"{PFX}_sn_r1"
+    progs[name] = Program(name, [xwindow(y, l, al, 1, w, 0, D1SEG) for y, l, al, w in SN_WINS],
+                          "group sn: the filler and MOV DS1:[BW],AW (block 1 at 0 waits), the code in block 0 at 0, 1, 2 "
+                          "waits, no READY (the control of groups s0 .. sa), PRC = 4Eh")
+    for g, hold in SREADY.items():
+        name = f"{PFX}_{g}_r1"
+        p = Program(name, [xwindow(y, l, al, 1, w, 0, D1SEG, ready=True) for y, l, al, w in S_WINS],
+                    f"group {g}: the filler and MOV DS1:[BW],AW (block 1 at 0 waits), the code in block 0 at 2 waits and "
+                    f"READY, READY low {hold if hold else 0} clocks from /MREQ's fall of a block-0 cycle, PRC = 4Eh")
+        p.m = (0, round(hold * CLK), 3, 0x01) if hold else None
+        progs[name] = p
+    for g, hold in TREADY.items():
+        name = f"{PFX}_{g}_r1"
+        p = Program(name, [xwindow(y, l, al, 1, w, 0, D1SEG, ready=True) for y, l, al, w in T_WINS],
+                    f"group {g}: groups s's window (f0 al1, f1 al0, f2 al1, f3 al0 and the controls f0 al0, j0 al0), "
+                    f"READY low {hold} clocks from /MREQ's fall of a block-0 cycle, PRC = 4Eh")
+        p.m = (0, round(hold * CLK), 3, 0x01)
+        progs[name] = p
+    for g, hold in UREADY.items():
+        name = f"{PFX}_{g}_r1"
+        p = Program(name, [ywindow(sh, l, al, 1, wc) for sh, l, al, wc in U_WINS],
+                    f"group {g}: groups y's shapes sc and rm, the data in block 1 at 2 waits and READY, READY low "
+                    f"{hold} clocks from /MREQ's fall of a block-1 cycle, PRC = 4Eh")
+        p.m = (0, round(hold * CLK), 3, 0x02)
+        progs[name] = p
+    for g, hold in HREADY.items():
+        for r in (1, 0):
+            name = f"{PFX}_{g}_r{r}"
+            p = Program(name, [xwindow(y, l, al, r, w, 0, D1SEG, ready=True) for y, l, al, w in H_WINS],
+                        f"group {g}: REP STM / REP MOVBK with the code in block 0 at 2 waits and READY (low {hold} "
+                        f"clocks from /MREQ's fall), the destination in block 1 at 0 waits, with PRC = {PRCV[r]:02X}h")
+            p.m = (0, round(hold * CLK), 3, 0x01)
+            progs[name] = p
     for g, hold in READY.items():
         for r in (1, 0):
             name = f"{PFX}_{g}_r{r}"
@@ -317,7 +530,7 @@ def main():
     elif a.action == "sim":
         run_set(names, "sim", a.tag, progs)
     elif a.action == "pair":
-        for g in a.names or ["b", "r", "c", "d"] + list(READY):
+        for g in a.names or ["b", "r", "c", "d", "e", "f", "i", "g"] + list(HREADY) + list(READY):
             pair(g, a.ref + a.tag, progs)
     elif a.action in ("repeat", "gate"):
         ref, cand = ("socket", "socket-2") if a.action == "repeat" else (a.ref, a.cand)
