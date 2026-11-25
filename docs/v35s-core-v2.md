@@ -4525,3 +4525,21 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   second clock; P10 INTP0's flag by frame; P11 REP MOVBKW at two odd addresses; P12 one
   TMIC0 read. Trial of P1 to P4 together: corpus 0 rows differ, onchip_t 2 / 4 (f4_oc_e
   118 of 118), f5_ph_s 30 of 32, f5_la_q 23 of 24, store lines as land48.
+- **2026-11-25, socket rows for the corpus groups (build/overseer/miss339-rows/ROWS.md;
+  rows339.py, f5_wy_*, 16 programs, 1,058 windows, two captures equal).** MOV PS,r/m loads
+  PS at once and the fetch address keeps the old segment until the next flush (24 of 24;
+  a short branch's refill is at the new segment): the stream's segment base is the queue's,
+  loaded at a flush. Group A, the bit-field head: under READY low 2 to 5 clocks the commit
+  point stays on the fetch's fourth-last clock, where READY is still sampled low, so a
+  fourth-last rule cannot be causal; the head's fourth word is a plain bus-idle word and
+  the fifth is the commit word, passing as every other commit word does; trial (the `bi
+  alt` one word later in ext, exti, ins, insi; ROM unchanged) gains 114 of 114 on F32 F34
+  F39, lost 0. Group B: the extra clock of the `J` wait depends on the pair's second byte
+  cycle alone (there for 3+3, 4+3, 5+3 clocks, absent for 3+4, 3+5, 4+4, 5+5): four clocks
+  from the second cycle's start; no mechanism. K reproduced; under READY on the third
+  fetch's ready clock; held. BR far / CALL far [mem]: 18 windows with the first read a
+  clock early on silicon, the popping bus-idle word passing on the last clock of the fetch
+  that delivers its byte (the open delivery-clock pop; corpus group M the same). E1 as
+  work order 49 builds it. F G H I E2 reproduced, unread; two guessed rules refuted (18
+  gained / 140 lost; 0 / 3,972). The request word behind a long I/O write (P3) was not
+  exercised (I/O waits left at 0).
