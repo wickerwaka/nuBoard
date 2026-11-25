@@ -4563,3 +4563,28 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   no further condition on the third-last-clock constant. A (the bit-field head), C (one
   bus-to-loader bit allowed), D, E1 and the request word of PUSH sreg / RET imm16 go into
   work order 49. The delivery-clock pop is in design.
+- **2026-11-25, interrupt path and HALT design note (build/overseer/int-design/
+  DESIGN-INT.md; intprobe.py, 10 f5_lc_* and 2 f4_od_* programs, 409 windows, two captures
+  equal).** HALT on silicon is a loop of two words: one tests the release, the other the
+  take, so each test is made every second clock; a release is followed by an E whose start
+  takes no maskable request; with IE 0 the E follows 11 clocks after the controller's
+  count starts. Trial (the loop as six words in core.uasm and four in xfer_stop.uasm, ROM
+  1,956; EI's restart and the INT pin's claim a register behind IE's rise; the request seen
+  by the scan as its strobe raises it and the timer's strobe a clock ahead; a fixed
+  two-clock hold of the fetch as a stand-in for the controller's cycle): corpus 30,197 with
+  0 lost, every function gate and store line as the baseline, windowed sets 2,650 to 3,141
+  equal of 4,101 (IE 0 release 320 of 320 from 0; pin release 23 of 32 twice; phase set 111
+  equal from 1); two windows of the new probe f5_lc_pb lost, six gained. Open: the take out
+  of HALT with IE 1 is 4 clocks early or late (the two take kinds inverted where no fetch
+  is pending at HALT's pop; the selecting signal not found). The controller's cycle on
+  silicon (f5_lc_sj by level) is a two-clock bus cycle granted at the first fetch slot at
+  or after the naming + 6, the count standing until the grant; it is not granted on an
+  idle bus with no fetch wanted. The fixed hold is right only when the count's two clocks
+  fall on a fetch slot (110 phase windows equal, 126 right takes one clock late, none of
+  them an equal window). The take boundary by level is the grant plus the instruction
+  boundary, not a rule of its own. INTP's sampler: with EI's restart corrected, one
+  residual of under a clock at the slot's threshold. OUT ; CVTBD / CVTDB is a datum rule:
+  at 2 I/O waits the pins show the CVT's sign-extended immediate (the odd pair's first
+  half keeps AL), at 0 waits AL / AW; clocks equal in every window. REP STMW / MOVBKW with
+  IY odd at 0 waits leave the string one clock later on silicon (7 of 24 windows). CLKOUT
+  in STOP: no new rows. Rows still wanted: H1 H2 P6a P6b P10a R2a R3a P11a (section 7).
