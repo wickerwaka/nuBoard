@@ -4479,3 +4479,18 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   sweeps s and t 8 of 12 / 2 of 6 with READY low (the parked commit word); u 16 of 16.
   Open at RAMEN 0: REP CMPBK, PREPARE at waits and level 1 and up, CALL memptr16 beyond
   [d16] unmeasured.
+- **2026-11-25, the 339 corpus misses classified (build/overseer/miss339/MISSES.md,
+  groups.jsonl, SOCKET-ROWS.md; head 235ddea).** All 339 core misses are chain-model exact
+  and the chain model's 175 misses are all RTL-exact; no run is missed by both. Groups: A
+  the bit-field head's commit word, 114 (F32 F34 F39, pE, W 1 / 2; EXT / INS read 1 late;
+  ruled not built 2026-11-17); B the `J` wait behind a no-wait pair, 88 (F24 F30, W 0; the
+  cycle behind the last string element 1 early; not a bus state); C the store's release on
+  the write's last byte cycle, 26 (successor's fetch 1 early; no microcode-only fix, each
+  route one bit over the port budget); F a request word against a two-wait fetch, 20; G a
+  five-held back-to-back fetch, 16; E1 SHL [m],CL's fourth word, 15 (trial: `bi` to `rl=x`
+  as SHL r,CL's, 15 gained, 0 lost on 2,772 runs); D RET far imm16, 12 (trial: on RET far's
+  measured words, the immediate released on the second datum word; 12 gained, 0 lost); E2
+  IN acc,DW's request word, 12 (three trials fail); H two-register d16 stores, 11; K the
+  `P C` commit word against the third fetch of a chain, 6 (trial: one more condition on the
+  third-last-clock constant); L CVTDB behind an EU cycle, 6 (ruled); I M N, 13. The reading
+  model is exact on 224 of the 339 (rules measured, not built); 115 are unread states.
