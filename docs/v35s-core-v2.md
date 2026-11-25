@@ -4494,3 +4494,34 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   `P C` commit word against the third fetch of a chain, 6 (trial: one more condition on the
   third-last-clock constant); L CVTDB behind an EU cycle, 6 (ruled); I M N, 13. The reading
   model is exact on 224 of the 339 (rules measured, not built); 115 are unread states.
+- **2026-11-25, the RAMEN 1 leftovers studied (build/overseer/r1-left/DESIGN.md; r1left.py,
+  f5_wx_a .. e, 21 programs, two captures equal).** Trials on 235ddea, not landed. (1) BRKV:
+  the "full-queue lead" rows are BRKV not taken (the filler clears V); silicon's not-taken
+  BRKV is 6 clocks from its first word (the book's 3); one structure gives both paths: BRK
+  3's first three words, then the V test on the fourth. (2) PREPARE: the level byte released
+  one word later; only seen with seven bytes held. (3) BRKCS reg16 measured `P . BP . . B .
+  . . . . F N .`: the 0F page's ModR/M head and a bus-idle sixth word; RETRBI the page's
+  bus-idle third word; the interrupt's bank entry on BRKCS's words from the first is an
+  inference from one distance (30 for the core's 27). (4) Fetches of the old stream up to
+  and on the flush clock go out at the old PS, in BR far and RET far imm16 alike: the
+  stream's segment base as a register of the queue loaded with the stream's offset (RTL, 20
+  flops, no port). (5) RET far imm16 `. . Y D . . Y D . . F N .`. (6) The prelude gap is
+  refresh: sixteen refresh phases against the RFM store give six layouts on silicon; closed
+  under the no-refresh rule, nothing built. New: BR far [d16] / CALL far [d16] behind j0 at
+  odd alignment, first read a clock earlier on silicon (4 windows). Trial, five items
+  together: store sets 5,208 to 5,262 of 5,616 windows, 0 down; f5_wx a 60 / 60, b 72 / 72,
+  c 90 / 94, d 30 / 30, e 30 / 30; corpus subset lost 0, gained 12; ROM 1,950 to 1,959.
+- **2026-11-25, the program sets that differ analysed (build/overseer/progsets/
+  PROGSETS.md).** wtc's 8 "differ" are the ungated whole-trace lines (8 of 8 equal by
+  window); STOP's function is built and gated, only CLKOUT in STOP is not; the fuzz five
+  are OUT then CVTBD / CVTDB (ruled 2026-11-13); the phase gate dies on a receipt name and
+  never compares seven programs. Causes: P1 TOUT's pin on the clock's edge; P2 a fetch
+  behind a memory write gives way to a boundary once, silicon's next fetch too; P3 a
+  request word waits for the EU's own I/O write as for its memory write (one frame); P4
+  HALT's fetch stop cancels a fetch pending behind the EU's cycle; P5 EI restarts the scan
+  a clock early; P6 the controller's two-clock bus cycle before a take is not built (needs
+  a wire intc to bus); P7 which INC a take falls behind, unread; P8 a request reaches the
+  scan two clocks late; P9 HALT is a stalled state where silicon tests for release every
+  second clock; P10 INTP0's flag by frame; P11 REP MOVBKW at two odd addresses; P12 one
+  TMIC0 read. Trial of P1 to P4 together: corpus 0 rows differ, onchip_t 2 / 4 (f4_oc_e
+  118 of 118), f5_ph_s 30 of 32, f5_la_q 23 of 24, store lines as land48.
