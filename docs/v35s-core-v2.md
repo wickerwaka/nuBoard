@@ -4588,3 +4588,10 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   half keeps AL), at 0 waits AL / AW; clocks equal in every window. REP STMW / MOVBKW with
   IY odd at 0 waits leave the string one clock later on silicon (7 of 24 windows). CLKOUT
   in STOP: no new rows. Rows still wanted: H1 H2 P6a P6b P10a R2a R3a P11a (section 7).
+- **2026-11-25, rulings on the interrupt and HALT design.** The controller's bus cycle is
+  left out of the next batch (no fixed hold, the allowed intc-to-bus wire stays unused);
+  rows P6a and P6b first, then a design on the grant. The timer's pre-strobe net inside
+  v35_sfr.sv (v35_timer to v35_intc) is within the rules. The IE 0 release count is
+  accepted as ACK + RESP - 4, the two fewer being the loop's two words. The HALT loop is
+  built now with the IE 1 take recorded open. OUT ; CVT's datum rule waits for rows R2a.
+  Next socket session: P6a, P6b, R2a, P10a, R3a, P11a (H1 and H2 not chosen).
