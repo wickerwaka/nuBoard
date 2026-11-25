@@ -10225,3 +10225,40 @@ build/overseer/wo46/rtl.md.
   the chain's next fetch (LCHW), the M90 pair `26 89 07 ; 26 89 57 02`. No RAMEN term in the bus unit.
 - Not built here (their current timing kept): CALL / BRK pushes, PUSH R's one gap, the read side (POP R, RETI,
   RET far, MOVBK and CMPBK single, the REP compares).
+
+## Work order 47: the access wait, words under an access, the mode posts (RAMEN round 3)
+
+Built on work order 46. Source: the RAMEN design's third round (build/overseer/ramen-design3 DESIGN3.md; the store
+sets f5_wt / f5_wu and wstore4's groups c and d). The read side, PUSH R, CALL and BRK at RAMEN 0 on their existing
+bodies, no second body. With RAMEN 1 every routine keeps its clocks. Record: build/overseer/wo47/rtl.md.
+
+- **The access wait `fa` (sequencer, EU).** f with the flush bit (a FLUSH word never waits). With RAMEN 1 an F
+  word that takes nothing: it waits for its request's cycle as the F word it replaced did, and the EU leaves the
+  datum-valid flag (`opr_v`) for the F word behind it that takes the datum (one new signal, `w_fa`, the code's flop
+  beside the word: the user's ruling of 2026-11-24 raised the useq -> eu ceiling to 4 and the two module ceilings
+  by one for it). With RAMEN 0 a plain word: the words behind it run under the read, the datum's F waits if needed.
+- **Words under an access** (microcode only): plain words between a post and the F behind it. With RAMEN 1 they
+  run inside the cycle (at most three: a cycle is never shorter); with RAMEN 0 they are words.
+- **The mode posts `p1` / `p0` (sequencer).** A posting word with vk posts with RAMEN 1 only, one with the flush bit
+  (not f) with RAMEN 0 only: the same cycle posted on one word at RAMEN 1 and one to three words later at RAMEN 0,
+  the words between being words under the access at RAMEN 1. A masked post is no post to every reader (the early
+  POST bit for the EU's post flop and the slot, the late bus field by `pm_q`). The early end's vk code is not read
+  on a posting word.
+- **The request word's wait for the EU's own write (bus unit, `yw_nx`).** A memory request word also waits while
+  the EU's own memory write has two clocks or more left (rule C's fetch term read for the write). No RAMEN term;
+  at RAMEN 1 no request word executes inside the EU's own write.
+- Routines (urom/xfer.uasm, stack.uasm, str.uasm): RETI, POP R, RET far, MOVBK and CMPBK single, PUSH R, CALL
+  near / reg / direct memory / far, BRK 3's body (BRK 3, BRK imm8, BRKV). Each word count read from the pins is
+  declared OPEN in the routine's why-string. uasm: `fa`, `p1`, `p0` checked at the parse and on the packed image
+  (the sequencer's decode selects exactly the marked words); the book check's machine reads them as RAMEN 1.
+- **Round 4 (build/overseer/ramen-design4 DESIGN4.md).** REP STM and REP MOVBK run one body in both modes (the
+  user's ruling of 2026-11-24): the element's write is a mode post carrying the count's test on its RAMEN 1 post
+  word, REP MOVBK's read ends on an access wait, and the last element's words (`rep_l`) are shared. Work order
+  46's two RAMEN 0 bodies and its mode branch (a JC on DN with vk, `rz`) are withdrawn: v35_useq's CD_DN reads
+  `c_dn` alone again. With RAMEN 1 the exit has a bus-idle word where it had a word with no act (OPEN in the
+  why-strings). REPNE CMPBK's loop is reworded (access waits where its words had no act, IX and CW stepped at the
+  next round's start, the count's test in front of the source's post) with its RAMEN 1 clocks kept; REPNE CMPM's
+  first read is a mode post. A p1 word waits for the request slot in both modes (`pd_nx.post`): with RAMEN 0 it
+  posts nothing but is still the request's place (BRK's pushes, max(W + 8, L + 5) at 2 waits).
+- Not built: PREPARE, PUSH DS0 (a release mark in front of the early end, still in design), CALL memptr16's other
+  modes, CALL near / far behind a store lead at 2 waits, BRKV's full-queue leads.

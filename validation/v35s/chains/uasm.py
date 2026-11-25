@@ -398,7 +398,7 @@ class Word:
     post_e: bool = False
     open: bool = False      # a word the measured cost needs whose act the sources do not name
     ee: bool = False        # (WO46) the early end's mark (`ee`; ee_code places its code)
-    rz: bool = False        # (WO46) the mode branch's mark (`rz`: jc=DN with vk, RAMEN 0)
+    mode: str = ""          # (WO47) "fa" (the access wait), "p1" / "p0" (the mode posts)
 
 
 @dataclass
@@ -489,13 +489,6 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 fields["vk"] = 1
                 fields["alt"] = 1
                 fields["_strict"] = 1
-            elif k == "rz":
-                # (WO46, the core README "WO46") the mode branch: on a JC word naming the condition DN
-                # the vk bit makes the condition "the internal RAM is disabled" (RAMEN 0; v35_useq's
-                # cond_v / cond_a). Written `jc=DN:label rz`; DN without vk keeps its meaning (the
-                # divide's dividend sign)
-                fields["vk"] = 1
-                fields["_rz"] = 1
             elif k == "ee":
                 # (WO46, the core README "WO46") the early end: with the internal RAM disabled
                 # (RAMEN 0) this word is the routine's E word and the word executed after it the
@@ -503,6 +496,17 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 # CH_BNEXT marks): vk alone on a plain word (a LOOP word: E on the loop's exit
                 # only), nb on a bus-idle word (bi)
                 fields["_ee"] = 1
+            elif k in ("fa", "p1", "p0"):
+                # (WO47, the core README "WO47") three marks RAMEN reads (v35_useq fa_c, e_pm):
+                #   fa  the access wait: an F word that takes nothing; with RAMEN 1 it waits for its
+                #       request's cycle as F does (the datum taken by an F word behind it), with
+                #       RAMEN 0 it is a plain word. In the word: f with the flush bit
+                #   p1  a posting word that posts with RAMEN 1 only (in the word: vk on the post)
+                #   p0  a posting word that posts with RAMEN 0 only (the flush bit on the post)
+                # Codes and checks below (the parse) and in l40_pack (the decode on the image)
+                if fields.get("_mode"):
+                    raise UasmError(f"{path}:{ln}: one of fa, p1, p0 a word")
+                fields["_mode"] = k
             elif k == "alt":
                 # (qprobe round 10) the bus wait's second kind, in the word's vk bit (read by
                 # SR_VEC alone): with bi C (the commit word), with rl=x and bi V (the late
@@ -526,12 +530,33 @@ def parse_word(text: str, path: str, ln: int) -> Word:
     if fields.get("ea") == enum_value("v35_ea_e", "rep") and (fields.get("bus") or not fields.get("e")
                                                               or fields.get("seq")):
         raise UasmError(f"{path}:{ln}: ea=REP is a fact of an E word that posts nothing (F5d)")
-    rz = bool(fields.pop("_rz", 0))
-    if rz and (fields.get("seq") != enum_value("v35_seq_e", "jc")
-                                 or fields.get("cond") != enum_value("v35_cond_e", "dn")
-                                 or fields.get("bi") or fields.get("rl") == RL_X or fields.get("_ee")):
-        raise UasmError(f"{path}:{ln}: rz is the mode branch's mark: jc=DN:label rz on a word with no "
-                        "bus wait")
+    mode = fields.pop("_mode", "")
+    if mode:
+        # (WO47) each code is a free combination: checked against every bit that shares it
+        opr = enum_value("v35_src_e", "opr")
+        vec = enum_value("v35_src_e", "vec")
+        srcs = [fields.get(k) for k in ("ws", "s1", "s2", "ax", "ay")]
+        if (fields.get("e") or fields.get("bi") or fields.get("rl") == RL_X or fields.get("vk")
+                or fields.get("flush") or fields.get("_ee") or fields.get("nb")
+                or "tgt" in fields or vec in srcs or fields.get("halt") or fields.get("pfx")):
+            raise UasmError(f"{path}:{ln}: {mode} is a mark of a plain word (no E, bi, rl=x, vk / alt / "
+                            "strict / vector, flush, ee, nb, halt or pfx)")
+        if fields.get("seq", enum_value("v35_seq_e", "next")) not in (
+                enum_value("v35_seq_e", k) for k in ("next", "jmp", "jc", "jnc")) \
+                or fields.get("cond") == enum_value("v35_cond_e", "dn"):
+            raise UasmError(f"{path}:{ln}: {mode} on a word whose sequencing is not NEXT, JMP, JC or JNC "
+                            "(and not a jump on DN)")
+        posts = fields.get("bus") and fields.get("bus") != enum_value("v35_bus_e", "rsv")
+        if mode == "fa":
+            if fields.get("f") or fields.get("bus") or opr in srcs:
+                raise UasmError(f"{path}:{ln}: fa is the access wait: no f of its own, no post, and it "
+                                "takes no datum (no OPR source)")
+            fields["f"] = 1
+            fields["flush"] = 1
+        else:
+            if not posts or fields.get("f"):
+                raise UasmError(f"{path}:{ln}: {mode} is a mode post: a posting word that is not F")
+            fields["vk" if mode == "p1" else "flush"] = 1
     ee = bool(fields.pop("_ee", 0))
     if ee:
         sq = fields.get("seq", enum_value("v35_seq_e", "next"))
@@ -554,7 +579,7 @@ def parse_word(text: str, path: str, ln: int) -> Word:
         raise UasmError(f"{path}:{ln}: an open word's comment must start OPEN")
     if act.startswith("OPEN") and not is_open:
         raise UasmError(f"{path}:{ln}: an OPEN comment on a word that is not open")
-    return Word(fields, act, ln, label, refs, open=is_open, ee=ee, rz=rz)
+    return Word(fields, act, ln, label, refs, open=is_open, ee=ee, mode=mode)
 
 
 def parse_file(path: Path) -> list[Routine]:
@@ -887,9 +912,24 @@ def ee_decode(v: int) -> bool:
     r = l40_fields(v)
     k = dict(zip(L40_KF, _kbits(r["K"])))
     s5 = r["SEQ"]
-    ev = k["vk"] and not k["bi"] and k["rl"] != RL_X and s5 in EE_SEQ
+    ev = k["vk"] and not k["bi"] and k["rl"] != RL_X and s5 in EE_SEQ and not l40_early(v)["post"]
     eb = k["nb"] and k["bi"] and not k["e"]
     return bool(ev or eb)
+
+
+def mode_decode(v: int) -> str:
+    """(WO47) the sequencer's decode of the RAMEN marks from a 40-bit word (v35_useq fa_c, e_pm):
+    "fa" f with flush; "p1" a posting word with vk; "p0" a posting word with flush and not f."""
+    r = l40_fields(v)
+    k = dict(zip(L40_KF, _kbits(r["K"])))
+    post = l40_early(v)["post"]
+    if k["f"] and k["flush"]:
+        return "fa"
+    if post and k["vk"]:
+        return "p1"
+    if post and k["flush"] and not k["f"]:
+        return "p0"
+    return ""
 
 
 def _kbits(kv: int) -> list:
@@ -1522,7 +1562,7 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = Fal
                 f["seq"] = _SQ[x.k]
             if x.k in _TGT_ADDR:
                 f["tgt"] = addr[x.tgt]
-        words.append((r, Word(f, w0.act, w0.line, None, {}, w0.post_e, w0.open, w0.ee, w0.rz)))
+        words.append((r, Word(f, w0.act, w0.line, None, {}, w0.post_e, w0.open, w0.ee, w0.mode)))
 
     # every source word's address: at its node's stored word, or (a forced successor: the word
     # after a JC / LOOP / call / vector word, and (work order 25) a middle call's return point)
@@ -2171,12 +2211,10 @@ def l40_pack(prog, strict: bool = True) -> L40Image:
             img.misfits.append((a, prog.name_of(a), "the early end's decode differs from its mark"))
         elif W[a][1].ee and l40_fields(v)["SEQ"] not in EE_SEQ:
             img.misfits.append((a, prog.name_of(a), "an early end's SEQ is not NEXT, JMP, CALL, RET or LOOP"))
-        # (WO46) vk on a jump on DN is the mode branch alone: JC (v35_useq cond_v / cond_a read vk there)
-        rf = l40_fields(v)
-        dn = enum_value("v35_cond_e", "dn")
-        if rf["SEQ"] in (L40_SEQ["JC"] | dn, L40_SEQ["JNC"] | dn) \
-                and dict(zip(L40_KF, _kbits(rf["K"])))["vk"] != (rf["SEQ"] == L40_SEQ["JC"] | dn and W[a][1].rz):
-            img.misfits.append((a, prog.name_of(a), "a jump on DN: vk is the mode branch's mark (rz, JC) alone"))
+        # (WO47) the RAMEN marks' decode selects exactly the marked words
+        if mode_decode(v) != W[a][1].mode:
+            img.misfits.append((a, prog.name_of(a), f"the RAMEN mark's decode ({mode_decode(v) or '-'}) "
+                                f"differs from its mark ({W[a][1].mode or '-'})"))
     if strict and img.misfits:
         raise UasmError("L40: words that do not fit and have no way out:\n" + "\n".join(
             f"  {a:4d} {nm}: {why}" for a, nm, why in img.misfits[:40]))
@@ -2823,9 +2861,11 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
         # the bus unit's and not counted)
         if f.get("e") and refill_at is not None and t < refill_at:
             t = refill_at
-        if f.get("flush"):
+        # (WO47) the book's machine is RAMEN 1's: the access wait (`fa`) is an F word and never a
+        # FLUSH, a `p1` word posts, a `p0` word is a word with no post (and no FLUSH)
+        if f.get("flush") and not w.mode:
             refill_at = t + BUS_CYCLE
-        if f.get("bus") and f["bus"] != enum_value("v35_bus_e", "rsv"):   # (round 18) RSV posts nothing
+        if f.get("bus") and f["bus"] != enum_value("v35_bus_e", "rsv") and w.mode != "p0":   # (round 18) RSV posts nothing
             if done_at is not None and t < done_at:      # one request at a time
                 t = done_at
             done_at = t + 1 + BUS_CYCLE

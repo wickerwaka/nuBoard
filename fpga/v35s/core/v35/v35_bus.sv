@@ -809,12 +809,17 @@ module v35_bus
     // in tick B, its field read directly)
     wire        c3n_nx = lg_b && wf_fetch == 2'd0;
     wire        kst = wk_nx.flush && wk_nx.alt && wk_nx.bi;     // the strict word ((r24) flush with alt and no bi: wkbn's code)
+    // (WO47, README "WO47") a memory request word Y (rl=x with bi) also waits while the EU's own
+    // memory write has two clocks or more left (rule C's `fy` for a fetch, read for the EU's
+    // write: the request word executes from the write's next-to-last clock). Both modes; with
+    // RAMEN 1 no request word executes inside the EU's own write (F waits for the write's end)
+    wire        yw_nx = bz_nx && ck_nx == K_WRITE && r2_nx;
     assign ph_nx = (wk_nx.disp && !wk_nx.bi && bnd_w) || (wk_nx.bi && !wk_nx.rlx && !wk_nx.alt && (bp_nx || (kbp && (b4w_nx || lcw_nx))))
                    || (kst && (bp_nx || b2s_nx))
                    || (wk_nx.bi && wk_nx.alt && !wk_nx.rlx && !kst && (cbw_nx || (b2s_nx && !c3n_nx)))
                    || (cr_k && (cbw_nx || b4w_nx || (b2s_nx && !few_b && !c3n_nx)))
                    || (wk_nx.rlx && !wk_nx.bi && (wk_nx.alt ? sla_nx : sl_nx))
-                   || (wk_nx.rlx && wk_nx.bi && (wk_nx.alt ? (fb_nx && !fl_n) : fy_nx));
+                   || (wk_nx.rlx && wk_nx.bi && (wk_nx.alt ? (fb_nx && !fl_n) : (fy_nx || yw_nx)));
     always @(posedge clock) begin
         if (!reset_n || ce_a) begin
             wkd <= wk_nx.disp && !wk_nx.bi;     // ((r24) dispatch with bi: kbp's code, a B word)

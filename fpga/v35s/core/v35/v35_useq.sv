@@ -139,6 +139,8 @@ module v35_useq
     output wire        w_erep,          // (F5d) the word's derived bit (a register): e && ea == EA_REP
     output wire        w_erep_nx,       // ... tick B: the next word's
     output wire        ex,              // the word executes this clock (tick A)
+    output wire        w_fa,            // (WO47) the word is an access wait (`fa`; a register beside
+                                        //   the word): an F word that takes no datum (the EU's opr_v)
     output reg         ex_b,            // ... registered at ce_b (tick B, ce_a)
     // (step B) the take points and acts the interrupt / service unit (v35_intc) reads, named for
     // what they are (each an AND of the registered outcome and the word's fields or derived
@@ -239,7 +241,7 @@ module v35_useq
     // dispatch behind them are then not reached. Two free codes of the K field mark it (uasm `ee`):
     //   vk alone (no bi, rl not x) on a word whose SEQ is NEXT, JMP, CALL, RET (the layout's forms of
     //     NEXT) or LOOP (vk is otherwise SR_VEC's
-    //     on a vector word, SEQ VEC or TRAP, and the mode branch's on a JC word, below): a plain
+    //     on a vector word, SEQ VEC or TRAP; (WO47) on a posting word the mode post p1's): a plain
     //     word; on a LOOP word only on the loop's exit (the counter at 1: the loop body loads no
     //     counter, uasm), an E word being followed by its dispatch word alone
     //   nb with bi on a word that is not E (nb is otherwise an E word's, or the CH_BNEXT mark of a
@@ -248,20 +250,36 @@ module v35_useq
     // no term below is 1 and the word runs as it reads (vk alone and nb with bi have no other
     // meaning: wk_bn below excludes bi)
     reg [8:0]  cnt = 9'd0;                  // the loop counter (declared here: the early end reads it)
-    wire        ee_v = kk[4] && !kk[5] && kk[2:1] != 2'd3
+    wire        ee_v = kk[4] && !kk[5] && kk[2:1] != 2'd3 && !e_post        // (WO47) vk on a post: p1
                        && (s5 == L40_SQ_NEXT || s5 == L40_SQ_JMP || s5 == L40_SQ_CALL || s5 == L40_SQ_RET
                            || (s5 == L40_SQ_LOOP && cnt == 9'd1));
     wire        ee_b = kk[6] && kk[5] && !kk[8];
-    // (WO46, README "WO46") the mode branch: a JC word naming the condition DN with the vk bit (uasm
-    // `rz`; DN is otherwise the divide's dividend sign, read on words without vk) takes its jump with
-    // the internal RAM disabled: the REP STM and REP MOVBK heads enter their RAMEN 0 bodies by it.
-    // `ramen_a` is RAMEN as the ce_a registers have it, so tick A's and tick B's next addresses
-    // (cond_a, cond_v) read one value on the clock PRC changes
-    reg         ramen_a = 1'b1;
-    always_ff @(posedge clock)
-        if (!reset_n || ce_a)
-            ramen_a <= ramen;
+    // ((WO47, round 4) work order 46's mode branch, a JC on DN with vk entering REP STM's and REP
+    // MOVBK's RAMEN 0 bodies, is withdrawn with those bodies: the two routines run one body in both
+    // modes, user ruling 2026-11-24)
     wire        ee_nx = (ee_v || ee_b) && !ramen;
+    // (WO47, README "WO47") three more free codes of the K field, each read with RAMEN:
+    //   `fa`, the access wait: f with the flush bit (a FLUSH word never waits, uasm). With RAMEN 1 an
+    //     F word (it waits for its request's cycle as F does) that takes nothing: `w_fa` tells the EU
+    //     to leave the datum-valid flag for the F word behind it that takes the datum; with RAMEN 0
+    //     a plain word. Never a FLUSH word
+    //   `p1`, a posting word with vk: it posts with RAMEN 1 only
+    //   `p0`, a posting word with the flush bit (not f): it posts with RAMEN 0 only (never a FLUSH)
+    // A masked post is a word with no post to every reader: the early POST bit (the EU's post
+    // flop, the slot stall), the late bus field (pm_q below). With RAMEN 1 the access wait is the
+    // F word it replaced and a p0 word a word with no act; uasm checks on the packed image that
+    // each decode selects exactly the words marked with it
+    wire        fa_c = kk[7] && kk[0];
+    wire        e_pm = e_post && ((kk[4] && !ramen) || (kk[0] && !kk[7] && ramen));
+    wire        e_post_m = e_post && !e_pm;
+    reg         pm_q = 1'b0;                // the word now is a mode post masked in this mode
+    reg         fa_q = 1'b0;                // the word now carries the access wait's code
+    always_ff @(posedge clock)
+        if (!reset_n || ce_a) begin
+            pm_q <= e_pm;
+            fa_q <= fa_c;
+        end
+    assign w_fa = fa_q;
     reg         ee_q = 1'b0;                // the word now is an early-end word (RAMEN 0)
     reg         ed_q = 1'b0;                // the word now is its dispatch word
     wire        ed_nx = (ee_q && ex) || (ed_q && !ex);     // the word read now follows it (or is it still, stalled): the dispatch
@@ -284,7 +302,9 @@ module v35_useq
             wnx.nb = 1'b0;
         end
         wnx.rl = v35_rl_e'(kk[2:1]);
-        wnx.flush = kk[0];
+        wnx.flush = kk[0] && !kk[7] && !e_post;    // (WO47) not fa's, not p0's
+        if (fa_c && !ramen)
+            wnx.f = 1'b0;                   // (WO47) the access wait with RAMEN 0: a plain word
         wnx.pop = v35_pop_e'(rpp);
         wnx.wid = v35_wid_e'(rwd);
         wnx.ra = v35_rsel_e'(rra);
@@ -293,7 +313,7 @@ module v35_useq
         wnx.cond = v35_cond_e'(s5[4] ? s5[2:0] : 3'd0);
         wnx.tgt = e_tgt;
         wnx.d1 = e_kw ? MD_OPRW : MD_NONE;
-        wnx.bus = e_post ? BQ_MEMR : BQ_NONE;
+        wnx.bus = e_post_m ? BQ_MEMR : BQ_NONE;
     end
     assign word_nx = wnx;
     // the tables' addresses by the word's form (layout 2.4; uasm l40_table_addr): N (no register,
@@ -342,6 +362,8 @@ module v35_useq
         {word.alu, word.ax, word.ay, word.wf, word.cnt} = xq;
         {word.d1, word.s1, word.d2, word.s2, word.wr, word.ws, word.ea, word.bus, word.seg,
          word.pfx, word.susp, word.halt, word.ist} = yq;
+        if (pm_q)
+            word.bus = BQ_NONE;             // (WO47) the mode post masked in this mode
     end
     // (MX5) the word's derived bits (the field compares the stall terms and the take points
     // read), decoded from the next word's read data in tick B and registered with the word
@@ -496,7 +518,10 @@ module v35_useq
     // (`+v35_chk`)
     v35_upre_t pd_nx;
     always_comb begin
-        pd_nx.post = e_post;
+        // (WO47, round 4) the slot's stall reads a p1 word as posting in both modes: with RAMEN 0 it
+        // posts nothing but is still the request's place and waits for the slot there; the cycle is
+        // posted by the p0 word behind it. A p0 word with RAMEN 1 neither posts nor waits
+        pd_nx.post = e_post && !(kk[0] && !kk[7] && ramen);
         pd_nx.disp = s5[4:1] == L40_SQ_DISP[4:1] || ed_nx;
         pd_nx.dispm = 1'b0;                 // (qprobe round 17) DISPM withdrawn
         pd_nx.erep = kk[8] && s5[0];        // an E word's SEQ is NEXT, EREP or JMP (uasm)
@@ -568,7 +593,7 @@ module v35_useq
             CD_XC: cond_v = c_xc;
             CD_SNZ: cond_v = c_snz;
             CD_SGD: cond_v = c_f1;
-            CD_DN: cond_v = word.vk ? !ramen_a : c_dn;     // (WO46) DN with vk: the mode branch (RAMEN 0)
+            CD_DN: cond_v = c_dn;
             default: cond_v = 1'b0;
         endcase
     end
@@ -627,7 +652,7 @@ module v35_useq
             CD_XC: cond_a = c_xc;
             CD_SNZ: cond_a = c_snz;
             CD_SGD: cond_a = c_f1;
-            CD_DN: cond_a = word.vk ? !ramen_a : c_dn;     // (WO46) DN with vk: the mode branch (RAMEN 0)
+            CD_DN: cond_a = c_dn;
             default: cond_a = 1'b0;
         endcase
     end
@@ -789,6 +814,14 @@ module v35_useq
                 $display("v35 chk: useq: the registered stall outcome differs at %0t", $time);
         end
     end
+    // (WO47, round 4) the derived bits of the word now: a p1 word masked with RAMEN 0 (pm_q with vk)
+    // still reads as posting for the slot (pd_nx.post)
+    v35_upre_t pre_w;
+    always_comb begin
+        pre_w = pre(word);
+        if (pm_q && word.vk)
+            pre_w.post = 1'b1;
+    end
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
             // (qprobe round 17) the DISPM source is withdrawn (no routine had one; uasm rejects it)
@@ -797,7 +830,7 @@ module v35_useq
                 if (chk_n <= 20)
                     $display("v35 chk: useq: a DISPM word executed at %0t (the source is withdrawn)", $time);
             end
-            if (upc_ab !== upc_n || pd !== pre(word) || ra_ab !== ra_rb) begin
+            if (upc_ab !== upc_n || pd !== pre_w || ra_ab !== ra_rb) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: useq: the ROM's address or the derived bits differ at %0t", $time);
@@ -854,7 +887,12 @@ module v35_useq
     end
     wire [95:0] rw_ref = {r2, r1, r0};
     wire [95:0] qw_ref = {q2, q1, q0};
+    reg         ramen_c = 1'b1;             // RAMEN as the word register has it (the checker's)
+    always @(posedge clock)
+        if (!reset_n || ce_a)
+            ramen_c <= ramen;
     v35_uword_t nx_raw, w_raw, nx_ref, w_ref;
+    v35_upre_t  pd_ref;
     assign nx_raw = v35_uword_t'(rw_ref[UWORD_BITS-1:0]);
     assign w_raw = v35_uword_t'(qw_ref[UWORD_BITS-1:0]);
     // (WO46) the reference with the early end's forcing (RAMEN 0): the E word's e / ro / nb, its
@@ -876,7 +914,30 @@ module v35_useq
         end
         if (ed_q)
             w_ref.seq = SQ_DISP;
+        // (WO47) the access wait and the mode posts, decoded from the reference's own fields
+        // (the next word with RAMEN, the word now with RAMEN as it was loaded: ramen_c)
+        nx_ref = ref_mode(nx_ref, ramen);
+        w_ref = ref_mode(w_ref, ramen_c);
+        // (WO47, round 4) the derived POST bit the slot reads: a p1 word's in both modes
+        pd_ref = pre(nx_ref);
+        if (pre(nx_raw).post && nx_raw.vk && !ramen)
+            pd_ref.post = 1'b1;
     end
+    function automatic v35_uword_t ref_mode(input v35_uword_t w, input logic rm);
+        ref_mode = w;
+        if (w.f && w.flush) begin               // fa: never a FLUSH; F with RAMEN 1 only
+            ref_mode.flush = 1'b0;
+            if (!rm)
+                ref_mode.f = 1'b0;
+        end else if (pre(w).post && w.vk) begin // p1: posts with RAMEN 1 only
+            if (!rm)
+                ref_mode.bus = BQ_NONE;
+        end else if (pre(w).post && w.flush) begin  // p0: posts with RAMEN 0 only, never a FLUSH
+            ref_mode.flush = 1'b0;
+            if (rm)
+                ref_mode.bus = BQ_NONE;
+        end
+    endfunction
     wire       kw_ref = nx_ref.d1 == MD_OPRW || nx_ref.d2 == MD_OPRW;
     always @(posedge clock) begin
         if (chk_on) begin
@@ -888,7 +949,7 @@ module v35_useq
                              upc, $time);
             end
             // the early facts of tick B
-            if (pd_nx !== pre(nx_ref) || (e_kw && !kw_ref)
+            if (pd_nx !== pd_ref || (e_kw && !kw_ref)
                 || {wnx.e, wnx.f, wnx.nb, wnx.bi, wnx.vk, wnx.ro, wnx.rl, wnx.flush, wnx.pop, wnx.wid,
                     wnx.seq, wnx.cond, wnx.tgt}
                    !== {nx_ref.e, nx_ref.f, nx_ref.nb, nx_ref.bi, nx_ref.vk, nx_ref.ro, nx_ref.rl,

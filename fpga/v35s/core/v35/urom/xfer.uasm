@@ -108,7 +108,7 @@ bcwz_t: alu=ADD ax=PC ay=IMM rl=1 call=w2   ; taken: the target; P: the displace
 ; The displacement is popped as a displacement (DL DH: no take sync), the push's reservation raised
 ; on its last pop: the frozen model posts the push on the displacement's take (post_on_take: no
 ; take sync; the posted write holds the fetches from then)
-routine call_near op=E8 book="CALL near-proc" why="OPEN: (qprobe round 8, Q21) CALL near is `. . . . PP . Y D . . F N .` (the qprobe fl-call / cr runs): SP - 2, the displacement popped on the fourth and fifth words and released on the fifth (SP and the address), the return address into the write datum, Y (the request word: the push due four clocks after it, posted three words later), two words with no act, the push's post, D (F: the push's end), the target's add, a word with no act, F (the flush, bus-idle) three clocks after the write's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); the book's 21 in the book check's machine; before round 8: the push posted at S+9, F with SUSP, the target's add, six words, FLUSH, E (F23-push-call-pE-w0)"
+routine call_near op=E8 book="CALL near-proc" why="OPEN: (qprobe round 8, Q21) CALL near is `. . . . PP . Y D . . F N .` (the qprobe fl-call / cr runs): SP - 2, the displacement popped on the fourth and fifth words and released on the fifth (SP and the address), the return address into the write datum, Y (the request word: the push due four clocks after it, posted three words later), two words with no act, the push's post, D (F: the push's end), the target's add, a word with no act, F (the flush, bus-idle) three clocks after the write's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); the book's 21 in the book check's machine; before round 8: the push posted at S+9, F with SUSP, the target's add, six words, FLUSH, E (F23-push-call-pE-w0) (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) OPEN at RAMEN 0, a word count read from the pins: the push posted three words later (a mode post p1 / p0 with two words under it: 3 words; silicon's push on Y + 7); why silicon has the words is not known"
     open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     pop=dl wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG   ; pop the displacement's low byte; SP <- SP - 2; the address register
@@ -116,7 +116,10 @@ routine call_near op=E8 book="CALL near-proc" why="OPEN: (qprobe round 8, Q21) C
     d1=OPRW s1=PC                           ; the return address (the byte after the displacement) into the write datum
     rl=x bi                                 ; (qprobe round 8) Y: the request word (the push due four clocks after it, posted three words later)
     open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
-    bus=MEMW seg=SS wid=WORD                ; post the push at SS:SP (Y + 3)
+    bus=MEMW seg=SS wid=WORD p1             ; post the push at SS:SP (Y + 3) ; (WO47) p1: posted here with RAMEN 1
+    open                                    ; OPEN: (WO47) a word under the push (with RAMEN 1 it runs inside the write, in front of F's wait)
+    open                                    ; OPEN: (WO47) a word under the push (with RAMEN 1 it runs inside the write, in front of F's wait)
+    bus=MEMW seg=SS wid=WORD p0             ; (WO47) p0: the push posted here with RAMEN 0
     f                                       ; D: F: the push's end
     alu=ADD ax=PC ay=DISP                   ; the target: the instruction pointer + the displacement
     open                                    ; OPEN: (qprobe round 8) a word with no act
@@ -170,16 +173,17 @@ routine ret_imm op=C2 book="RET pop-value" diff=-1 why="OPEN: book error where t
     e ro                                    ; E: the target's opcode, once delivered
 
 ; ---- RETF (CB): V20 RETF_ 00F4-00F7 + RETF 0234-0237 (two stack reads, OPR -> CS, FLUSH E)
-routine retf op=CB book="RET far" diff=-1 why="OPEN: (qprobe round 8, Q21) RET far is `. . Y D . Y D . . F N .` (the qprobe fl-retf runs): SP into the address register, SP + 2, SP's write with Y (the offset's read due four clocks after it, posted three words later), two words with no act, the post, D (F: the offset into tmpa), SP and the segment's address with SP + 2, SP's write with the second Y two clocks after the first datum word, two words with no act, the post, D (F: PS <- the segment), the offset into SIGMA, a word with no act, F (the flush, bus-idle) three clocks after the second read's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); book error of one in the book check's machine (its refill fetch on the flush's clock); before round 8: reads posted at S+5 and S+14, SUSP, FLUSH, E (F35-push-far-callf-retf-pE-w0)"
+routine retf op=CB book="RET far" diff=-1 why="OPEN: (qprobe round 8, Q21) RET far is `. . Y D . Y D . . F N .` (the qprobe fl-retf runs): SP into the address register, SP + 2, SP's write with Y (the offset's read due four clocks after it, posted three words later), two words with no act, the post, D (F: the offset into tmpa), SP and the segment's address with SP + 2, SP's write with the second Y two clocks after the first datum word, two words with no act, the post, D (F: PS <- the segment), the offset into SIGMA, a word with no act, F (the flush, bus-idle) three clocks after the second read's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); book error of one in the book check's machine (its refill fetch on the flush's clock); before round 8: reads posted at S+5 and S+14, SUSP, FLUSH, E (F35-push-far-callf-retf-pE-w0) (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) at RAMEN 0 the offset's read ends on an access wait (fa), the offset taken on the word in front of the segment's post (the delay's last word: no word added); the place of that word is read from the pins (OPEN)"
     rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     wr=SP wid=WORD ws=SIG rl=x bi           ; SP <- SP + 2; (qprobe round 8) Y: the request word (the offset's read due four clocks after it, posted three words later)
     open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
     bus=MEMR seg=SS wid=WORD                ; post the offset's read at SS:SP (Y + 3)
-    f d1=TA s1=OPR                          ; D: F: the offset into tmpa
+    fa                                      ; (WO47) the access wait (RAMEN 1): the offset is taken three words on
     rb=SP wid=WORD d1=ADDR s1=RB alu=INC2 ax=RB    ; SP into the address register (the segment's); SP + 2
     wr=SP wid=WORD ws=SIG rl=x bi           ; SP <- SP + 2; (qprobe round 8) Y: the second request word, two clocks after the first datum word
-    open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    f d1=TA s1=OPR                          ; (WO47) F: the datum wait: the offset into tmpa, in front of the next post (was the delay's last word)
     bus=MEMR seg=SS wid=WORD                ; post the segment's read (Y + 3)
     f wr=PS wid=WORD ws=OPR                 ; D: F: PS <- the segment (RAM and the flop)
     alu=PASS ax=TA                          ; the offset into SIGMA
@@ -211,7 +215,7 @@ routine retf_imm op=CA book="RET far pop-value" diff=2 why="OPEN: silicon longer
 ; PC pushed, PS and PC loaded, FLUSH E). The offset popped as a displacement (no take sync, the
 ; model's chained take), the segment as an immediate (the take sync armed), the reservation for
 ; the pushes from its last pop
-routine call_far op=9A book="CALL far-proc" diff=-2 why="OPEN: (qprobe round 8, Q21) CALL far is `. . . . PP . Q . PP . Y D . Y D . . F N .` with Q on the seventh word (WO45, the wstore3 set f5_wu_k_r1 cf: without it a five-held continuation started on S + 7 behind the fetch the offset's release started, the strict segment word waited it out and both pushes came 2 clocks late, 3 of 8 windows; before: built without Q, the work order: the far forms' Q not built; the qprobe fl-callf runs at W = 0): the offset popped on the fourth and fifth words and released on the fifth, two words with no act, the segment popped on the eighth and ninth and released on the ninth, SP - 2, SP and the address with PS and Y (the first push due four clocks after it, posted three words later), two words with no act, the post, D (F: the first push's end) with SP - 2, SP and the address with the return offset, the second Y two clocks after the first datum word, two words with no act, the post, D (F: its end), PS and the target, a word with no act, F (the flush, bus-idle) three clocks after the second write's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); book error of two in the book check's machine (its refill fetch on the flush's clock); before round 8: pushes posted at S+13 and S+22, SUSP, FLUSH, E (F35-push-far-callf-pE-w0)"
+routine call_far op=9A book="CALL far-proc" diff=-2 why="OPEN: (qprobe round 8, Q21) CALL far is `. . . . PP . Q . PP . Y D . Y D . . F N .` with Q on the seventh word (WO45, the wstore3 set f5_wu_k_r1 cf: without it a five-held continuation started on S + 7 behind the fetch the offset's release started, the strict segment word waited it out and both pushes came 2 clocks late, 3 of 8 windows; before: built without Q, the work order: the far forms' Q not built; the qprobe fl-callf runs at W = 0): the offset popped on the fourth and fifth words and released on the fifth, two words with no act, the segment popped on the eighth and ninth and released on the ninth, SP - 2, SP and the address with PS and Y (the first push due four clocks after it, posted three words later), two words with no act, the post, D (F: the first push's end) with SP - 2, SP and the address with the return offset, the second Y two clocks after the first datum word, two words with no act, the post, D (F: its end), PS and the target, a word with no act, F (the flush, bus-idle) three clocks after the second write's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); book error of two in the book check's machine (its refill fetch on the flush's clock); before round 8: pushes posted at S+13 and S+22, SUSP, FLUSH, E (F35-push-far-callf-pE-w0) (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) OPEN at RAMEN 0, word counts read from the pins: the first push posted one word later (p1 / p0: 1 word), the second two words later (p1 / p0 with one word under it: 2 words; the late post behind the request word's wait for the EU's own write); why silicon has the words is not known"
     open call=w2                            ; OPEN: (qprobe round 8) a word with no act (3 clocks: the call and the shared delay's 2)
     pop=dl                                  ; pop the offset's low byte
     pop=dh rl=2                             ; pop its high byte; (qprobe round 8) PP: both offset bytes released
@@ -222,12 +226,15 @@ routine call_far op=9A book="CALL far-proc" diff=-2 why="OPEN: (qprobe round 8, 
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA rl=x bi   ; SP <- SP - 2; the address register; PS into the write datum; (qprobe round 8) Y: the first request word
     open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
-    bus=MEMW seg=SS wid=WORD                ; post the first push (PS) at SS:SP (Y + 3)
+    bus=MEMW seg=SS wid=WORD p1             ; post the first push (PS) at SS:SP (Y + 3) ; (WO47) p1: posted here with RAMEN 1
+    bus=MEMW seg=SS wid=WORD p0             ; (WO47) p0: the push posted here with RAMEN 0
     f rb=SP wid=WORD alu=DEC2 ax=RB         ; D: F: the push's end; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address; the return offset into the write datum
     rl=x bi                                 ; (qprobe round 8) Y: the second request word, two clocks after the first datum word
     open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
-    bus=MEMW seg=SS wid=WORD                ; post the second push (PC) (Y + 3)
+    bus=MEMW seg=SS wid=WORD p1             ; post the second push (PC) (Y + 3) ; (WO47) p1: posted here with RAMEN 1
+    open                                    ; OPEN: (WO47) a word under the push (with RAMEN 1 it runs inside the write, in front of F's wait)
+    bus=MEMW seg=SS wid=WORD p0             ; (WO47) p0: the second push posted here with RAMEN 0 (two words later, behind the request word's wait)
     f                                       ; D: F: the push's end
     wr=PS wid=WORD ws=IMM alu=PASS ax=DISP  ; PS <- the segment (RAM and the flop); the offset into SIGMA
     open                                    ; OPEN: (qprobe round 8) a word with no act
@@ -246,7 +253,7 @@ routine br_reg op=FF mod=reg reg=4 book="BR regptr16" diff=-1 why="OPEN: (qprobe
     e ro                                    ; E: the target's opcode, once delivered
 
 ; ---- CALL r16 (FF /2 register): V20 FE/FF 01BC-01BF (PC, SP - 2, M -> PC FLUSH, MEMW SS E)
-routine call_reg op=FF mod=reg reg=2 book="CALL regptr16" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) CALL r16 is `P . B . . . . Y D . . F N .` (the qprobe tr-callr runs, 36 / 36 clean): JMP r16's head, Y with the push (three words later), D, Q21's flush tail; exempt from the three-bytes rule"
+routine call_reg op=FF mod=reg reg=2 book="CALL regptr16" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) CALL r16 is `P . B . . . . Y D . . F N .` (the qprobe tr-callr runs, 36 / 36 clean): JMP r16's head, Y with the push (three words later), D, Q21's flush tail; exempt from the three-bytes rule (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) OPEN at RAMEN 0, a word count read from the pins: the push posted two words later (a mode post p1 / p0 with one word under it: 2 words); why silicon has the words is not known"
     ra=RM wid=WORD d1=TA s1=RA              ; the register (the target) into tmpa (the ModR/M byte released by the loader: P)
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC bi ; (qprobe round 13, Q44) B: the bus-idle third word; SP <- SP - 2; the address; the return address into the write datum
@@ -256,7 +263,9 @@ routine call_reg op=FF mod=reg reg=2 book="CALL regptr16" diff=1 why="OPEN: sili
     open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
     rl=x bi                                 ; (qprobe round 13, Q44) Y: the request word (the push posted three words later)
     open call=w1                            ; OPEN: (qprobe round 13, Q44) two words with no act (the call and the shared delay's 1)
-    bus=MEMW seg=SS wid=WORD                ; post the push at SS:SP (Y + 3)
+    bus=MEMW seg=SS wid=WORD p1             ; post the push at SS:SP (Y + 3) ; (WO47) p1: posted here with RAMEN 1
+    open                                    ; OPEN: (WO47) a word under the push (with RAMEN 1 it runs inside the write, in front of F's wait)
+    bus=MEMW seg=SS wid=WORD p0             ; (WO47) p0: the push posted here with RAMEN 0
     f alu=PASS ax=TA                        ; D: F: the push's end; the target into SIGMA
     open call=w1                            ; OPEN: (qprobe round 13, Q44) two words with no act (the call and the shared delay's 1)
     flush bi                                ; FLUSH: the stream from the target (bus-idle)
@@ -299,7 +308,7 @@ routine br_mem_m0 op=FF ml=1 mod=m00 rm=0-5,7 reg=4 why="OPEN: silicon longer th
     e ro                                    ; E: the target's opcode, once delivered
 
 ; ---- CALL [m] (FF /2 memory): V20 FE/FF 01BC-01BF with the operand's pre-read
-routine call_mem_d op=FF ml=1 mod=m00 rm=6 reg=2 why="OPEN: (qprobe round 16, Q65: the shape `P . B Y . PP2 D ...`, the QPr16a jm / cm runs, 48 / 48 each; replaces round 12's `P PP2 B Y D ...`) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) CALL [d16] is `P PP2 B Y D . . . Z D . . F N .` (the qprobe tr-callm runs): JMP [d16]'s head, the push four words after the datum, Q21's flush tail"
+routine call_mem_d op=FF ml=1 mod=m00 rm=6 reg=2 why="OPEN: (qprobe round 16, Q65: the shape `P . B Y . PP2 D ...`, the QPr16a jm / cm runs, 48 / 48 each; replaces round 12's `P PP2 B Y D ...`) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) CALL [d16] is `P PP2 B Y D . . . Z D . . F N .` (the qprobe tr-callm runs): JMP [d16]'s head, the push four words after the datum, Q21's flush tail (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) OPEN at RAMEN 0, a word count read from the pins: the push posted two words later (a mode post p1 / p0 with one word under it: 2 words); why silicon has the words is not known; the other CALL memptr16 modes are not marked"
     pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
     pop=dh                                  ; pop its high byte (released two words after Y: (qprobe round 16, Q65))
     ea=DISP bi                              ; the address register <- the direct address; B: bus-idle
@@ -311,7 +320,9 @@ routine call_mem_d op=FF ml=1 mod=m00 rm=6 reg=2 why="OPEN: (qprobe round 16, Q6
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address; the return address into the write datum
     open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
-    bus=MEMW seg=SS wid=WORD                ; Z: post the push at SS:SP
+    bus=MEMW seg=SS wid=WORD p1             ; Z: post the push at SS:SP ; (WO47) p1: posted here with RAMEN 1
+    open                                    ; OPEN: (WO47) a word under the push (with RAMEN 1 it runs inside the write, in front of F's wait)
+    bus=MEMW seg=SS wid=WORD p0             ; (WO47) p0: the push posted here with RAMEN 0
     f alu=PASS ax=TA                        ; D: F: the push's end; the target into SIGMA
     open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
     flush bi                                ; FLUSH: the stream from the target (bus-idle)
@@ -534,7 +545,7 @@ routine brk_imm op=CD book="BRK imm8" diff=1 why="OPEN: silicon longer than the 
 routine brkv op=CE book="BRKV" xc=t diff=2 why="OPEN: silicon longer than the book: BRK 4 on V, BRK 3's body; not taken the decide and E (V20 INTO 010C-010D). (WO45, the wstore3 set f5_wu_k_r1 bv, 8 of 8 windows at four leads and both alignments) taken, the V test's word and then BRK 3's routine from its first word: every cycle of the break one clock after BRK 3's counted from the opcode's first word (vector read, PSW push, segment read, the two pushes). The mechanism is the taken conditional jump's row change: the V20's INTO is 010C (CONST 4 -> tmpbL; JMP O -> 010F) then 010F (FARJMP INT), INT3 is 0104 (CONST 3 -> tmpbL; SUSP) then 0105 (FARJMP INT): the same two words, and INTO's path has one taken jump more (a bubble clock each, the V20 ucore's S_ROW_CHG; docs/v35s-mechanisms/v30-opcodes.md INTO / INT3, v30-structure.md section 7); before: the test word jumped into BRK 3's second word, BRK 3's length, one clock short; the book's single BRKV figure (50, BRK 3's) does not separate the paths"
     jc=XC:brk3_0                            ; the V test (taken: the break to vector 4, through BRK 3's first word: the taken jump's row change)
     e                                       ; E (V clear)
-routine brk3 op=CC book="BRK 3" diff=1 why="(r24, work order 20 C: model_m INT3 has no lead, LEAD_CC 0; romcheck 'lead model 1 ROM 3'; 22 corpus rows) no lead; was: OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) INT 3 is `. . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .` (the qprobe int3 runs, 37 / 42; first vector read 12 clocks after the boundary behind the long shift): bus-idle words third and fifth; the vector offset's read, the PSW's push on its datum's word, the segment's read (U), the pushes of PS and PC, Q21's flush tail; (qprobe round 8, Q22) lead 3"
+routine brk3 op=CC book="BRK 3" diff=1 why="(r24, work order 20 C: model_m INT3 has no lead, LEAD_CC 0; romcheck 'lead model 1 ROM 3'; 22 corpus rows) no lead; was: OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) INT 3 is `. . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .` (the qprobe int3 runs, 37 / 42; first vector read 12 clocks after the boundary behind the long shift): bus-idle words third and fifth; the vector offset's read, the PSW's push on its datum's word, the segment's read (U), the pushes of PS and PC, Q21's flush tail; (qprobe round 8, Q22) lead 3 (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) OPEN at RAMEN 0, word counts read from the pins (BRK 3's body, also BRK imm8's and BRKV's): the PSW's push posted one word later (p1 / p0: 1 word), PS's push one word later (1 word), PC's push two words later (p1, a word under it, p0: 2 words; (round 4) a p1 word still waits for the request slot with RAMEN 0, silicon's third push max(W + 8, L + 5) behind the second); why silicon has the words is not known"
 brk3_0: open                                ; OPEN: (qprobe round 13, Q44) a word with no act; (WO45) BRKV's taken jump enters here
 brk_b1: d1=ADDR s1=VEC d2=TC s2=PC          ; the vector's address (4n); the return offset into tmpc (pushed last)
     bi                                      ; (qprobe round 13, Q44) B: the bus-idle third word
@@ -549,7 +560,8 @@ brk_y: rl=x bi                              ; (qprobe round 13, Q44) Y: the requ
     rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
     open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
     f d1=TA s1=OPR                          ; D: F: the offset into tmpa (Z on this word: the push requested)
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS   ; SP <- SP - 2; the address; the PSW into the write datum; post its push
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS p1; SP <- SP - 2; the address; the PSW into the write datum; post its push ; (WO47) p1: posted here with RAMEN 1
+    bus=MEMW seg=SS wid=WORD p0             ; (WO47) p0: the push posted here with RAMEN 0
     f alu=CITF wf                           ; D: F: the push's end; IE and BRK cleared (CITF)
     open call=w1                            ; OPEN: (qprobe round 13, Q44) two words with no act (the call and the shared delay's 1)
     d1=ADDR s1=TB                           ; U's word: the segment's address
@@ -557,11 +569,14 @@ brk_y: rl=x bi                              ; (qprobe round 13, Q44) Y: the requ
     rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
     open call=w2                            ; OPEN: (qprobe round 13, Q44) three words with no act (the call and the shared delay's 2)
     f d1=TB s1=OPR                          ; D: F: the segment into tmpb (Z on this word)
-    ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA bus=MEMW seg=SS   ; SP <- SP - 2; the address; PS into the write datum; post its push
+    ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA bus=MEMW seg=SS p1; SP <- SP - 2; the address; PS into the write datum; post its push ; (WO47) p1: posted here with RAMEN 1
+    bus=MEMW seg=SS wid=WORD p0             ; (WO47) p0: the push posted here with RAMEN 0
     f rb=SP wid=WORD alu=DEC2 ax=RB         ; D: F: the push's end; SP - 2
     open call=w2                            ; OPEN: (qprobe round 13, Q44) three words with no act (the call and the shared delay's 2)
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=TC   ; Z's word: SP <- SP - 2; the address; tmpc into the write datum (the return offset; an interrupt's: the interrupted instruction's start)
-    bus=MEMW seg=SS wid=WORD                ; Z: post PC's push
+    bus=MEMW seg=SS wid=WORD p1             ; Z: post PC's push ; (WO47, round 4) p1: posted here with RAMEN 1
+    open                                    ; OPEN: (WO47, round 4) a word under the push (with RAMEN 1 it runs inside the write, in front of F's wait)
+    bus=MEMW seg=SS wid=WORD p0             ; (WO47, round 4) p0: PC's push posted here with RAMEN 0 (two words later, behind the slot's wait on the word before)
     f                                       ; D: F: the push's end
     wr=PS wid=WORD ws=TB alu=PASS ax=TA     ; PS <- the vector's segment; the offset into SIGMA
     open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
@@ -569,23 +584,24 @@ brk_y: rl=x bi                              ; (qprobe round 13, Q44) Y: the requ
     e ro                                    ; E: the handler's opcode, once delivered
 
 ; ---- RETI (CF): V20 IRET_ 0110 + IRET 01E4-01EA (three stack reads: PC, PS, the PSW; FLUSH)
-routine reti op=CF book="RETI" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) RETI is `. . Y D . . . U D . . . U D . . . . . . . . F N .` (the qprobe reti runs, 12 / 12): three stack reads nine clocks apart (Y, then U twice), eight words, Q21's flush tail; the PSW restored whole (RB and MD: the bank switches)"
+routine reti op=CF book="RETI" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) RETI is `. . Y D . . . U D . . . U D . . . . . . . . F N .` (the qprobe reti runs, 12 / 12): three stack reads nine clocks apart (Y, then U twice), eight words, Q21's flush tail; the PSW restored whole (RB and MD: the bank switches) (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) OPEN at RAMEN 0, a word count read from the pins: PC's read posted one word later (a mode post p1 / p0: 1 word; silicon's first read one clock later); the first two reads end on an access wait (fa), each datum taken on the word in front of the next post (U's word with no act: no word added); the PSW's read keeps its F"
     rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     wr=SP wid=WORD ws=SIG rl=x bi           ; SP <- SP + 2; (qprobe round 13, Q44) Y: the request word (PC's read posted three words later)
     open call=w1                            ; OPEN: (qprobe round 13, Q44) two words with no act (the call and the shared delay's 1)
-    bus=MEMR seg=SS wid=WORD                ; post PC's read (Y + 3)
-    f d1=TA s1=OPR                          ; D: F: the return offset into tmpa
+    bus=MEMR seg=SS wid=WORD p1             ; post PC's read (Y + 3) ; (WO47) p1: posted here with RAMEN 1
+    bus=MEMR seg=SS wid=WORD p0             ; (WO47) p0: PC's read posted here with RAMEN 0 (silicon: the first read one clock later); with RAMEN 1 a word under the read
+    fa                                      ; (WO47) the access wait (RAMEN 1): the datum is taken three words on
     rb=SP wid=WORD d1=ADDR s1=RB            ; PS's address
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2
-    open                                    ; OPEN: (qprobe round 13, Q44) U's word
+    f d1=TA s1=OPR                          ; (WO47) F: the datum wait, on the word that takes the datum, in front of the next post (was U's word with no act)
     bus=MEMR seg=SS wid=WORD                ; U: post PS's read
-    f d1=TC s1=OPR                          ; D: F: the segment into tmpc
+    fa                                      ; (WO47) the access wait (RAMEN 1): the datum is taken three words on
     rb=SP wid=WORD d1=ADDR s1=RB            ; the PSW's address
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     wr=SP wid=WORD ws=SIG                   ; (WO39) SP <- SP + 2 in the old bank (F1: silicon's bank 7 SP, f1_psw), before the PSW's load; was on D
-    open                                    ; OPEN: (qprobe round 13, Q44) U's word
+    f d1=TC s1=OPR                          ; (WO47) F: the datum wait, on the word that takes the datum, in front of the next post (was U's word with no act)
     bus=MEMR seg=SS wid=WORD                ; U: post the PSW's read
     f wr=PSWA ws=OPR                        ; D: F: (WO39) the PSW <- the datum, all 16 bits: RB and MD restored (F1; the bank switches), IE at the PSW word's read as POP PSW's (silicon: passage.py f5_pe_reti*, the rise 2 clocks earlier than on a word of its own)
     open                                    ; OPEN: (WO39) the word the PSW load stood on (tmpb into the PSW): the routine's length kept

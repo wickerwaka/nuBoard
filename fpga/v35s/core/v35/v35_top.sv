@@ -300,6 +300,7 @@ module v35_top
     v35_udec_t  fmt_nx;
     wire [6:0]  ra_early, rb_early;
     wire        ex, ex_b, halted;
+    wire        w_fa;                // (WO47) the sequencer's access wait, for the EU's datum flag
     wire        w_dispm;                        // (MX5) the word's derived bits (registers)
     wire        w_dispm_nx;                     // (MX5c) tick B: the next word's
     wire        w_erep, w_erep_nx;              // (F5d) e && ea == EA_REP (useq's registered fact; tick B: the next word's)
@@ -418,7 +419,7 @@ module v35_top
         .opr_rdy, .rq_busy, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .q_stall_nx(l_qs_nx), .opr_rdy_nx(e_ordy_nx), .rq_busy_nx(e_rqb_nx),
         .wk_nx(s_wk_nx), .ph_nx(b_ph_nx), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx),
-        .wake(h_wake), .igo, .sgo, .ramen,
+        .wake(h_wake), .igo, .sgo, .ramen, .w_fa,
         .word, .word_nx, .w_dispm, .w_dispm_nx, .w_erep, .w_erep_nx, .ex, .ex_b, .q_susp, .halted,
         .x_disp, .x_tki, .x_end, .x_nb, .x_nbi, .x_flush, .w_stop, .x_stop, .x_ivec, .x_fint
     );
@@ -429,7 +430,7 @@ module v35_top
         .word, .word_nx(word_nx), .op_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx,
         .ra_early, .rb_early, .ex_b,
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
-        .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .ramen, .psw_brki, .psw_md,
+        .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .ramen, .w_fa, .psw_brki, .psw_md,
         .psw_ie, .psw_brk, .psw_ie_r, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns_pin(input_levels[0]), .req_ia,
         .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_hlt, .ms_end,
         .tk_dm, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd, .dm_tend, .dm_tlast, .dm_last, .req_dk,

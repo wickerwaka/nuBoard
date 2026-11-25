@@ -35,12 +35,12 @@ localparam int L40_YPAGE_NT = 176;      // the Y index prefix; 48 entries
 localparam int L40_YPAGE_NT1 = 224;      // the Y index prefix; 32 entries
 localparam int L40_XBITS = 18;   // v35_l40_x.hex: {alu, ax, ay, wf, cnt}
 localparam int L40_YBITS = 35;   // v35_l40_y.hex: {d1, s1, d2, s2, wr, ws, ea, bus, seg, pfx, susp, halt, ist}
-localparam logic [UADDR_W-1:0] L40_TKI0 = 12'd1301;   // take entry 0 (rep_brk+0)
-localparam logic [UADDR_W-1:0] L40_TKI1 = 12'd1894;   // take entry 1 (si_cmp+0)
+localparam logic [UADDR_W-1:0] L40_TKI0 = 12'd1295;   // take entry 0 (rep_brk+0)
+localparam logic [UADDR_W-1:0] L40_TKI1 = 12'd1882;   // take entry 1 (si_cmp+0)
 // the Y entries with SUSP (3)
 function automatic logic v35_l40_ysusp(input logic [8:0] a);
     case ({23'd0, a})     // (no 8-bit literal: test_v35_struct's opcode rule)
-        27, 66, 84: v35_l40_ysusp = 1'b1;
+        28, 69, 89: v35_l40_ysusp = 1'b1;
         default: v35_l40_ysusp = 1'b0;
     endcase
 endfunction
@@ -54,7 +54,7 @@ endfunction
 // the X entries with FINT (1)
 function automatic logic v35_l40_xfint(input logic [7:0] a);
     case ({24'd0, a})     // (no 8-bit literal: test_v35_struct's opcode rule)
-        83: v35_l40_xfint = 1'b1;
+        82: v35_l40_xfint = 1'b1;
         default: v35_l40_xfint = 1'b0;
     endcase
 endfunction

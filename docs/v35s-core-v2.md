@@ -4420,3 +4420,43 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   8,1 at waits, CALL near / far behind a store lead at 2 waits (one window each), no data
   for a REP compare ending on its condition or at waits; section 5 lists the word counts
   read from the pins.
+- **2026-11-24, work order 47 landed: RAMEN 0 on the read side, PUSH R, CALL and BRK;
+  REP STM and REP MOVBK on one body (gate build/overseer/land47 against land46).** The
+  third round's elements: the access wait `fa` (F with the flush bit: an F word that takes
+  nothing, a wait at RAMEN 1 only; the EU keeps its datum-valid flag through the one new
+  signal `w_fa`, useq to eu), mode posts `p1` (a post with vk, RAMEN 1 only) and `p0` (a
+  post with flush, RAMEN 0 only), words under the access, and the request word's wait for
+  the EU's own write in the bus unit (no RAMEN term). Routines: RETI, POP R, RET far, MOVBK
+  and CMPBK single, PUSH R, CALL near / reg / [d16] / far, BRK 3's body; each word count
+  read from the pins is OPEN in its routine's why (why silicon has those words is not
+  explained; the user's ruling). From the fourth round: REP STM and REP MOVBK on one body
+  for both settings, the second bodies and the `rz` branch removed (at RAMEN 1 the exit has
+  a bus-idle word for a word with no act; no reachable RAMEN 1 state exercises its wait:
+  the queue is full at the exit, socket groups ha / hc); a p1 word that posts nothing at
+  RAMEN 0 still waits for the request slot (BRK's third push at 2 waits). The fourth
+  round's REP CMPBK loop was not built: it stepped IX and held CW across the take point
+  (intr 10 / 5, dma 5 / 2 in the builder's run; vectors and corpus cannot see it). Budget by
+  the user's ruling: useq out 24, eu in 39, pair useq to eu 4. Corpus, pins and every
+  program-set line as land46 (30,197 of 30,536); timing +3.139 / +2.745 / +3.093 ns; 9,704
+  LUT4, 2,668 FF, 36 RAM_5K; ROM 1,961 to 1,949 words. Store sets at RAMEN 0: f5_wt 676 of
+  676; f5_wu 562 of 592; group c 166 of 188, d 43 of 72; RAMEN 1 lines unchanged.
+- **2026-11-24, RAMEN design rounds 5 to 8 (build/overseer/ramen-design5 .. 8; wstore4
+  groups e f g ha hc i and the READY sweeps).** (5) REP CMPBK cannot be done on one body
+  (18 clocks an element at RAMEN 1, 13 at RAMEN 0, the take point a non-waiting word on the
+  source read's third clock): left as landed, the user's ruling. REP CMPM with its loop and
+  take point kept, the first element's datum wait one word on: 108 of 108. PUSH sreg: a
+  release mark `er` one word in front of the early end. CALL near / far, PUSH imm16 and BR
+  near one clock early behind a store whose block has 2 waits: a word that releases operand
+  bytes and is not bus-idle waits while the EU's memory write has a clock left after the
+  next. PREPARE at RAMEN 1, levels 3 and 4: every copy after the first a clock later on
+  silicon; one word on the loop's back edge. (6) "An F behind a write passes from the
+  write's next-to-last clock at RAMEN 0" refuted: 546 windows lost, 11 gained; PREPARE
+  level 1 and up at waits stays one clock a wait off at RAMEN 0, open (no word-level
+  choice, the user's ruling). (6 to 8) Code fetches stretched by READY: everything exact
+  from 0 to 18.5 clocks but the commit word (`bi alt`) against the second fetch of a chain;
+  silicon's commit word is later than the third-last clock by floor(N) - 1 clocks for READY
+  low N clocks (half clocks never matter) and executes on the clock in which READY is first
+  high; the core decides the stall before that clock, so the pin flop, the synchronizer's
+  first flop and the raw pin are each one clock late; the harness is excluded (one lane
+  module for both lanes). Recorded and parked (the user's ruling); the third-last-clock
+  constant stays a known exception.

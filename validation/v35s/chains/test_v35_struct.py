@@ -404,8 +404,8 @@ BUDGET_MODULE = {
     "bus": {"out": 17, "in": 17},
     "queue": {"out": 16, "in": 11},
     "loader": {"out": 28, "in": 36},
-    "useq": {"out": 23, "in": 28},
-    "eu": {"out": 37, "in": 38},      # psw_ie_r: allowed by the user 2026-11-21
+    "useq": {"out": 24, "in": 28},    # w_fa (WO47): allowed by the user 2026-11-24
+    "eu": {"out": 37, "in": 39},      # psw_ie_r: allowed by the user 2026-11-21; w_fa (WO47) 2026-11-24
     "regram": {"out": 3, "in": 13},
     "intc": {"out": 13, "in": 15},    # psw_ie_r: allowed by the user 2026-11-21
 }
@@ -419,7 +419,7 @@ BUDGET_PAIR = {
     ("loader", "bus"): 1, ("loader", "eu"): 14, ("loader", "queue"): 3, ("loader", "useq"): 12,
     ("queue", "bus"): 4, ("queue", "loader"): 12,
     ("regram", "bus"): 1, ("regram", "eu"): 2,
-    ("useq", "eu"): 3, ("useq", "intc"): 10, ("useq", "loader"): 18, ("useq", "queue"): 2,
+    ("useq", "eu"): 4, ("useq", "intc"): 10, ("useq", "loader"): 18, ("useq", "queue"): 2,
 }
 # the next-value outputs left at step D (none may be added), each with its reader: the bus
 # unit's delivery (loader q_dlv_nx: q_stall_nx's byte count), datum register (loader h_dlv_nx:

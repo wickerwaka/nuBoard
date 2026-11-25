@@ -68,6 +68,8 @@ module v35_eu
     input  wire        p14,             // (F2b) the P14 pin as POLL reads it (v35_sfr's register)
     input  wire        ramen,           // (WO46) PRC bit 6 (v35_sfr's register): the internal RAM
                                         //   enabled; RAMEN 0 moves the end of a data access (README "WO46")
+    input  wire        w_fa,            // (WO47) the sequencer's: the word is an access wait (`fa`, a
+                                        //   register beside the word): F that takes no datum
     // the register RAM
     output wire [6:0]  ra_next,
     output wire [6:0]  rb_next,
@@ -897,7 +899,9 @@ module v35_eu
     wire        rq_wr_nx = post ? (b_mw || word.bus == BQ_IOW) : rq_wr;
     wire        rq_io_nx = post ? b_io : rq_io;
     assign rqm_nx = rq_v_nx && !rq_io_nx;
-    wire        opr_v_nx = (ex_b && word.f) ? 1'b0 : (req_done && rq_out && rq_rd) ? 1'b1 : opr_v;
+    // (WO47) the access wait (`fa`: an F word with RAMEN 1) takes nothing: it leaves the
+    // datum-valid flag for the F word behind it that takes the datum
+    wire        opr_v_nx = (ex_b && word.f && !w_fa) ? 1'b0 : (req_done && rq_out && rq_rd) ? 1'b1 : opr_v;
     wire        wr_run_nx = rq_out_nx && rq_wr_nx && !rq_io_nx && !req_done_nx && ramen;
     assign opr_rdy_nx = rq_wr_nx ? !wr_run_nx
                       : (opr_v_nx || (req_done_nx && rq_out_nx && rq_rd_nx));
@@ -1121,7 +1125,7 @@ module v35_eu
                 opr <= dnow;
                 opr_v <= 1'b1;
             end
-            if (ex_b && word.f)
+            if (ex_b && word.f && !w_fa)
                 opr_v <= 1'b0;
             // (F1) a FLAG store: PSW bits 5 and 3 (after the word's PSW write: the store's
             // cycle ended on this clock)

@@ -84,34 +84,38 @@ routine rep_brk why="OPEN: silicon longer than the book (measured, the extra wor
 
 ; ---- the single forms (no prefix): the element once. Clocks from the steady instance (the k2
 ; runs' second form, the frozen model exact): its first cycle's post at c7 / c8 / c9 / c10
-routine movbk op=A4,A5 book="MOVBK" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) MOVBK is `. . . . . Y D . . . Z DN .` (the qprobe movb / movw runs): the source's address, four words with no act, Y (the request word), IX stepped and the destination's address under the wait, the read's post, F (D: the datum into the write datum), IY stepped, two words with no act, the write's post (Z, four words after the datum), F with E (D N: the write's end, not its first clock)"
+routine movbk op=A4,A5 book="MOVBK" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) MOVBK is `. . . . . Y D . . . Z DN .` (the qprobe movb / movw runs): the source's address, four words with no act, Y (the request word), IX stepped and the destination's address under the wait, the read's post, F (D: the datum into the write datum), IY stepped, two words with no act, the write's post (Z, four words after the datum), F with E (D N: the write's end, not its first clock) (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) OPEN at RAMEN 0, a word count read from the pins: two words under the source read (2 words), the datum taken three words in front of the write's post; the read's F an access wait (fa); no early end (silicon keeps E on the write's first clock): the read to the second cycle 8 / 8 / 9 clocks at 0 / 1 / 2 waits; why silicon has the words is not known"
     ra=IX wid=WORD d1=ADDR s1=RA            ; the source's address IX
     open call=sb3                           ; OPEN: (r25, work order 21 B4, Q121) four words, the fourth bus-idle (`. . . B . Y`: zz_late.uasm sb3)
     rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
     ra=IX wid=WORD alu=STEP ax=RA           ; SIGMA = IX + the width
     wr=IX ws=SIG wid=WORD                   ; IX stepped
     bus=MEMR seg=DSP                        ; post the source read (Y + 3; its address taken at the grant: the address register kept until the datum)
-    f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
+    open                                    ; OPEN: (WO47) a word under the access (with RAMEN 1 it runs inside the cycle, in front of the access wait)
+    open                                    ; OPEN: (WO47) a word under the access (with RAMEN 1 it runs inside the cycle, in front of the access wait)
+    fa                                      ; (WO47) the access wait (RAMEN 1 only): the datum is taken two words on
     ra=IY wid=WORD d1=ADDR s1=RA alu=STEP ax=RA ; the destination's address IY; SIGMA = IY + the width
-    wr=IY ws=SIG wid=WORD                   ; IY stepped
-    open                                    ; OPEN: (qprobe round 11) a word with no act (WO46: the ee word after it was the shared delay's word)
-    ee                                      ; ee (WO46): the early end: with RAMEN 0 this word is E, the word after it the dispatch
+    wr=IY ws=SIG wid=WORD f d1=OPRW s1=OPR  ; IY stepped; (WO47) F: the datum wait: the datum into the write datum (three words in front of the write's post)
+    open                                    ; OPEN: (qprobe round 11) a word with no act
+    open                                    ; OPEN: (qprobe round 11) a word with no act ((WO47) no early end here: silicon's MOVBK keeps its E on the write's first clock at RAMEN 0, only F's wait goes)
     bus=MEMW seg=DS1                        ; Z: post the destination write (the datum + 5)
     f e ro                                  ; D N: F: the write's end; E; ro: released
 
-routine cmpbk op=A6,A7 book="CMPBK" width=word diff=0 why="OPEN: book error of one (F24-out-s-cmpbk-w-k2-pE-w0); (qprobe round 11, Q34) CMPBK is `. . . . . Y D . . . U D . N .` (the qprobe cmpbk runs): [IY] first, then [IX]: the destination's address, four words with no act, Y, IY stepped and the source's address under the wait, the read's post, F (D), IX stepped, two words with no act, the second read's post (U, Z's timing: four words after the datum), F (D), the compare, E"
+routine cmpbk op=A6,A7 book="CMPBK" width=word diff=0 why="OPEN: book error of one (F24-out-s-cmpbk-w-k2-pE-w0); (qprobe round 11, Q34) CMPBK is `. . . . . Y D . . . U D . N .` (the qprobe cmpbk runs): [IY] first, then [IX]: the destination's address, four words with no act, Y, IY stepped and the source's address under the wait, the read's post, F (D), IX stepped, two words with no act, the second read's post (U, Z's timing: four words after the datum), F (D), the compare, E (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) OPEN at RAMEN 0, a word count read from the pins: two words under the destination read (2 words), its F an access wait (fa), the datum taken two words on; the source's F carries the early end (ee: with RAMEN 0 the compare is the dispatch word, as CMP mem,reg's); why silicon has the words is not known"
     ra=IY wid=WORD d1=ADDR s1=RA            ; the destination's address IY (CMPBK reads it first)
     open call=sb3                           ; OPEN: (r25, work order 21 B4, Q121) four words, the fourth bus-idle (`. . . B . Y`: zz_late.uasm sb3)
     rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
     ra=IY wid=WORD alu=STEP ax=RA           ; SIGMA = IY + the width
     wr=IY ws=SIG wid=WORD                   ; IY stepped
     bus=MEMR seg=DS1                        ; post the destination read (Y + 3; the address register kept until the datum)
-    f d1=TB s1=OPR                          ; D: F: the destination's datum into tmpb
+    open                                    ; OPEN: (WO47) a word under the access (with RAMEN 1 it runs inside the cycle, in front of the access wait)
+    open                                    ; OPEN: (WO47) a word under the access (with RAMEN 1 it runs inside the cycle, in front of the access wait)
+    fa                                      ; (WO47) the access wait (RAMEN 1 only): the datum is taken two words on
     ra=IX wid=WORD d1=ADDR s1=RA alu=STEP ax=RA ; the source's address IX; SIGMA = IX + the width
-    wr=IX ws=SIG wid=WORD                   ; IX stepped
+    wr=IX ws=SIG wid=WORD f d1=TB s1=OPR    ; IX stepped; (WO47) F: the datum wait: the destination's datum into tmpb
     open call=w1                            ; OPEN: (qprobe round 11) two words with no act (the call and the shared delay's 1)
     bus=MEMR seg=DSP                        ; U: post the source read (the datum + 5)
-    f d1=TA s1=OPR                          ; D: F: the source's datum into tmpa
+    f ee d1=TA s1=OPR                       ; D: F: the source's datum into tmpa; (WO47) ee: the early end (with RAMEN 0 the compare is the dispatch word, as CMP mem,reg's)
     alu=GRP ax=TA ay=TB wf                  ; the compare [IX] - [IY] (W)
     e ro                                    ; E (N); ro: released
 
@@ -194,82 +198,49 @@ rz_io: open                                 ; OPEN: (qprobe round 12, spec 7 A3)
 rz_m: bi call=w6                            ; B: the bus-idle fourth word (c7); OPEN: c8 .. c13 (the call and the shared delay's 6)
     e ro                                    ; E: pop the next opcode (c14); ro: released
 
-routine rep_movbk op=A4,A5 page=rep bookx="2+16+(18+2W)n" n=4 diff=4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP MOVBK: the head (14 words from c4, B the fourth), the iteration `Y D . . . Z D .` (18 + the cycles' waits), the tail `. . . . . . N .` (the qprobe rmovb / rmovw, r11c runs; F24-out-r-rep-movbk-w-n2-pE-w0)"
+; (WO47, round 4) REP MOVBK and REP STM on one body for both modes (the second bodies rm0 / rs0 of round 2 are gone):
+; the access wait and the datum wait (fa / f), the write as a mode post one word later with RAMEN 0 (p1 / p0), the count's
+; test on the write's RAMEN 1 post word (the last element leaves the loop there: its write one word later still), one
+; word and a bus-idle word in front of the exit's delay. Every count of words here is read from the pins.
+routine rep_movbk op=A4,A5 page=rep bookx="2+16+(18+2W)n" n=4 diff=4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP MOVBK: the head (14 words from c4, B the fourth), the iteration `Y D . . . Z D .` (18 + the cycles' waits), the tail `. . . . . . N .` (the qprobe rmovb / rmovw, r11c runs; F24-out-r-rep-movbk-w-n2-pE-w0) (WO47 round 4, build/overseer/ramen-design4 DESIGN4.md; one body for both settings, user ruling 2026-11-24) OPEN at RAMEN 0, word counts read from the pins: the element's write posted one word later (p1 / p0: 1 word), the last element's two words later (2 words), the read's F an access wait (fa) with the datum taken on the word in front of the post; the exit one word and a bus-idle word in front of the five-word delay. OPEN at RAMEN 1: the exit's bus-idle word (it was a word with no act; it can wait for a fetch's pin cycle, which no window or corpus run shows); why silicon has these words is not known"
     ra=CW rb=IX wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix's two words are its own routine, rep_p: c2 c3): SIGMA = CW (the count's test); the first source address IX
     jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z)
     open                                    ; OPEN: c6, the head's word with no act
-    bi call=w9                              ; B: the head's bus-idle fourth word (c7); OPEN: c8 .. c16 (the call and the shared delay's 9)
-    jc=DN:rm0_h rz                          ; c17 (was the delay's last word): rz (WO46): the mode branch: with RAMEN 0 the jump to the body rm0; with RAMEN 1 a word with no act
+    bi call=w10                             ; B: the head's bus-idle fourth word (c7); OPEN: c8 .. c17 (the call and the shared delay's 10)
     rl=x bi jmp=rmv_b                       ; Y: the first element's request word (c18; no take point before the first element)
 rmv_y: ra=IX wid=WORD d1=ADDR s1=RA rl=x bi tki=rep_brk ; Y: the next element's request word, its source address IX; (F5e) the take point (the previous element done)
 rmv_b: ra=IX wid=WORD alu=STEP ax=RA         ; Y + 1: SIGMA = IX + the width
     wr=IX ws=SIG wid=WORD                   ; Y + 2: IX stepped (written back before the read's datum is taken: a source over the on-chip RAM reads its own IX slot stepped, silicon f3_bins / the fuzz snapshots)
     bus=MEMR seg=DSP                        ; Y + 3: post the source read
-    f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum (Y + 7 at W = 0)
+    fa                                      ; (WO47, round 4) the access wait (RAMEN 1): the datum is taken four words on
     ra=IY wid=WORD d1=ADDR s1=RA alu=STEP ax=RA ; the destination's address IY; SIGMA = IY + the width
     wr=IY ws=SIG wid=WORD                   ; IY stepped (before the write: STM / INM / MOVBK over IY's own slot)
     ra=CW wid=WORD alu=DEC ax=RA            ; SIGMA = CW - 1
-    open                                    ; OPEN: a word with no act
-    bus=MEMW seg=DS1                        ; Z: post the destination write (the datum + 5)
-    f wr=CW ws=SIG wid=WORD                 ; D: F: the write's end; CW written
-    jc=SNZ:rmv_y                            ; the count's test (CW - 1 not zero: the next element)
-    open call=w5                            ; OPEN: the tail's six words with no act (the call and the shared delay's 5)
-    e ro                                    ; E (N); ro: released
-; (WO46, the RAMEN delta design: build/overseer/ramen-design2 DELTA.md) REP MOVBK with the internal RAM disabled: silicon's shape from the f5_ws / f5_wt / f5_wv windows
-; (the first read on RAMEN 1's clock; read to write max(R + 7, the read's end + 4); write to the next read max(W + 6,
-; L + 3); the last element's write one clock later; the exit as REP STM's): the words behind the read's post run under
-; the read, the datum is waited for on the word that takes it, the count is tested in front of the write
-rm0_h: rl=x bi jmp=rm0_b                     ; Y: the first element's request word (c18)
-rm0_y: ra=IX wid=WORD d1=ADDR s1=RA rl=x bi tki=rep_brk ; Y: the next element's request word, its source address IX; the take point
-rm0_b: ra=IX wid=WORD alu=STEP ax=RA         ; Y + 1: SIGMA = IX + the width
-    wr=IX ws=SIG wid=WORD                   ; Y + 2: IX stepped
-    bus=MEMR seg=DSP                        ; Y + 3: post the source read
-    ra=IY wid=WORD d1=ADDR s1=RA alu=STEP ax=RA ; under the read: the destination's address IY; SIGMA = IY + the width
-    wr=IY ws=SIG wid=WORD                   ; IY stepped
-    ra=CW wid=WORD alu=DEC ax=RA            ; SIGMA = CW - 1
-    wid=WORD                                ; a word with no act (silicon: the datum word is the fifth behind the post)
-    f d1=OPRW s1=OPR                        ; D: F: the datum wait, on the word that takes the datum: into the write datum
-    jnc=SNZ:rm0_l                           ; the count's test in front of the write: CW - 1 = 0 is the last element
-    bus=MEMW seg=DS1                        ; post the destination write
-    f wr=CW ws=SIG wid=WORD                 ; D: CW written (F behind a write: no wait with RAMEN 0)
-    jmp=rm0_y                               ; the next element
-rm0_l: wid=WORD                             ; the last element's word in front of its write (silicon: its write one clock later)
-    bus=MEMW seg=DS1                        ; post the last write
-    f wr=CW ws=SIG wid=WORD                 ; D: CW written (F behind a write: no wait with RAMEN 0)
-    bi                                      ; B: bus-idle: the exit waits for the last write's end (its last clock included)
-    open call=w4                            ; OPEN: the tail's five words with no act (the call and the shared delay's 4)
-    e ro                                    ; E (N); ro: released
+    f d1=OPRW s1=OPR                        ; (WO47, round 4) F: the datum wait, on the word that takes the datum: into the write datum (was a word with no act)
+    bus=MEMW seg=DS1 p1 jnc=SNZ:rep_l       ; Z: post the destination write with RAMEN 1 (the datum + 5); the count's test: CW - 1 = 0 is the last element
+    bus=MEMW seg=DS1 p0                     ; (WO47, round 4) p0: the write posted here with RAMEN 0 (one word later); with RAMEN 1 a word under the write
+    f wr=CW ws=SIG wid=WORD                 ; D: F: the write's end (RAMEN 1); CW written
+    jmp=rmv_y                               ; the next element
 
-routine rep_stm op=AA,AB page=rep bookx="2+16+(9+W)n" n=4 diff=4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP STM: the head (14 words, B the fourth), the iteration `Y D .` (9 + the write's waits), the tail `. . . . . . N .` (the qprobe rstmw, r11c runs; F24-out-r-rep-stm-w-n2-pE-w0)"
+routine rep_stm op=AA,AB page=rep bookx="2+16+(9+W)n" n=4 diff=4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP STM: the head (14 words, B the fourth), the iteration `Y D .` (9 + the write's waits), the tail `. . . . . . N .` (the qprobe rstmw, r11c runs; F24-out-r-rep-stm-w-n2-pE-w0) (WO47 round 4, build/overseer/ramen-design4 DESIGN4.md; one body for both settings, user ruling 2026-11-24) OPEN at RAMEN 0, word counts read from the pins: the element's write posted one word later (p1 / p0: 1 word), the last element's two words later (2 words), the count's test on the RAMEN 1 post word; the exit one word and a bus-idle word in front of the five-word delay. OPEN at RAMEN 1: the exit's bus-idle word (it was a word with no act; it can wait for a fetch's pin cycle, which no window or corpus run shows); why silicon has these words is not known"
     ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW; the first destination address IY
     jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z) ((work order 26) the write datum's load moved to c6: L40 has no room for a register read, a payload and a target in one word)
     ra=AW d1=OPRW s1=RA                     ; c6: AW (AL) into the write datum ((work order 26) from c5; the datum is first used by the element's write, c18 + 3)
-    bi call=w9                              ; B: the head's bus-idle fourth word (c7); OPEN: c8 .. c16 (the call and the shared delay's 9)
-    jc=DN:rs0_h rz                          ; c17 (was the delay's last word): rz (WO46): the mode branch: with RAMEN 0 the jump to the body rs0; with RAMEN 1 a word with no act
+    bi call=w10                             ; B: the head's bus-idle fourth word (c7); OPEN: c8 .. c17 (the call and the shared delay's 10)
     rl=x bi jmp=rst_b                       ; Y: the first element's request word (c18)
 rst_y: ra=IY wid=WORD d1=ADDR s1=RA rl=x bi tki=rep_brk ; Y: the next element's request word, its address IY; (F5e) the take point
 rst_b: ra=IY wid=WORD alu=STEP ax=RA        ; Y + 1: SIGMA = IY + the width
     ra=CW wr=IY ws=SIG wid=WORD alu=DEC ax=RA ; Y + 2: IY stepped; SIGMA = CW - 1
-    bus=MEMW seg=DS1                        ; Y + 3: post the write (the format's width)
-    f wr=CW ws=SIG wid=WORD                 ; D: F: the write's end; CW written
-    jc=SNZ:rst_y                            ; the count's test (the next element)
-    open call=w5                            ; OPEN: the tail's six words with no act (the call and the shared delay's 5)
-    e ro                                    ; E (N); ro: released
-; (WO46, the RAMEN delta design: build/overseer/ramen-design2 DELTA.md) REP STM with the internal RAM disabled: silicon's shape from the f5_wt / f5_wv windows (the first
-; write one clock later than RAMEN 1's, an element max(W + 7, L + 4), the last element's write one clock later still,
-; the exit two words shorter than RAMEN 1's behind the last write's end): the count is tested in front of each write
-rs0_h: rl=x bi jmp=rs0_b                       ; Y: the first element's request word (c18)
-rs0_y: ra=IY wid=WORD d1=ADDR s1=RA rl=x bi tki=rep_brk ; Y: the next element's request word, its address IY; the take point
-rs0_b: ra=IY wid=WORD alu=STEP ax=RA        ; Y + 1: SIGMA = IY + the width
-    ra=CW wr=IY ws=SIG wid=WORD alu=DEC ax=RA bi ; Y + 2: IY stepped; SIGMA = CW - 1; bus-idle: it waits for the element's write before it (its last clock included)
-    jnc=SNZ:rs0_l                           ; Y + 3: the count's test in front of the write: CW - 1 = 0 is the last element
-    bus=MEMW seg=DS1                        ; Y + 4: post the write
-    f wr=CW ws=SIG wid=WORD                 ; D: CW written (F behind a write: no wait with RAMEN 0)
-    jmp=rs0_y                               ; the next element
-rs0_l: wid=WORD                             ; the last element's word in front of its write (silicon: its write one clock later)
-    bus=MEMW seg=DS1                        ; post the last write
-    f wr=CW ws=SIG wid=WORD                 ; D: CW written (F behind a write: no wait with RAMEN 0)
-    bi                                      ; B: bus-idle: the exit waits for the last write's end (its last clock included)
+    bus=MEMW seg=DS1 p1 jnc=SNZ:rep_l       ; Y + 3: post the write with RAMEN 1; the count's test: CW - 1 = 0 is the last element
+    bus=MEMW seg=DS1 p0                     ; (WO47, round 4) p0: the write posted here with RAMEN 0 (one word later); with RAMEN 1 a word under the write
+    f wr=CW ws=SIG wid=WORD                 ; D: F: the write's end (RAMEN 1); CW written
+    jmp=rst_y                               ; the next element
+; the last element's words (both routines): with RAMEN 1 its write is posted (the word that jumped here) and these run under it
+rep_l: open                                    ; OPEN: (WO47, round 4) a word under the write (with RAMEN 1 it runs inside the cycle, in front of F's wait)
+    bus=MEMW seg=DS1 p0                     ; (WO47, round 4) p0: the last write posted here with RAMEN 0 (two words later than RAMEN 1's)
+    f wr=CW ws=SIG wid=WORD                 ; D: F: the write's end (RAMEN 1); CW written
+    open                                    ; OPEN: (WO47, round 4) a word with no act (with RAMEN 0 it is absorbed by the bus-idle word's wait for the write's end)
+    bi                                      ; B: bus-idle: with RAMEN 0 the exit waits here for the last write's end; with RAMEN 1 the write has ended
     open call=w4                            ; OPEN: the tail's five words with no act (the call and the shared delay's 4)
     e ro                                    ; E (N); ro: released
 
