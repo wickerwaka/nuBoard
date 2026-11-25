@@ -174,8 +174,109 @@ GROUPS["m"] = [(y, l, al, w) for y in ("jm", "cm") for w in W3
 NOTES["m"] = "BR far [mem] / CALL far [mem] into segment 0FFFh behind eight leads at 0, 1, 2 waits"
 
 
+# ================================================================== the second session (miss339-rows2)
+import itertools
+
+_INCB = ([0x43], "INC BW   ; lead")
+SEQS = [""] + ["".join(s) for n in (1, 2, 3, 4) for s in itertools.product("IN", repeat=n)]    # I: INC BW, N: NOP
+_SEQ = {"I": _INCB, "N": _NOPL}
+for _s in SEQS:
+    _t = tuple(_SEQ[c] for c in _s)
+    w4.XLEADS[f"F{_s}"] = (_F,) + _t                 # the filler, then the sequence
+    w4.XLEADS[f"O{_s}"] = (_F, _OUT) + _t            # an I/O write in front
+    w4.XLEADS[f"P{_s}"] = (_F, _PU) + _t             # a push in front
+    w4.XLEADS[f"M{_s}"] = (_F, _OUT, _MRR) + _t      # OUT ; MOV r,r in front
+    w4.XLEADS[f"Q{_s}"] = (_F, _PU, _MRR) + _t       # PUSH ; MOV r,r in front
+S2 = [s for s in SEQS if len(s) <= 2]
+S3 = [s for s in SEQS if len(s) <= 3]
+DIRW = [w2.DIR & 0xFF, w2.DIR >> 8]
+XS2 = {
+    "sa": ([0xA3] + DIRW, f"MOV [{w2.DIR:04X}h], AW", {}),
+    "la": ([0xA1] + DIRW, f"MOV AW, [{w2.DIR:04X}h]", {}),
+}
+# group j: the wait behind an instruction's last EU cycle, a single cycle (even) against a no-wait pair (odd)
+_SEGW = _w(SEG)
+JF = {      # name: (register, even value, subject bytes or a function of the next offset, text, CW)
+    "r1": ("IY", w2.DST, [0xF3, 0xAB], "REP STMW", 1), "r2": ("IY", w2.DST, [0xF3, 0xAB], "REP STMW", 2),
+    "st": ("IY", w2.DST, [0xAB], "STMW", 1), "mk": ("IY", w2.DST, [0xF3, 0xA5], "REP MOVBKW", 1),
+    "m1": ("IY", w2.DST, [0xA5], "MOVBKW", 1), "ni": ("IY", w2.DST, [0x6D], "INMW", 1),
+    "rn": ("IY", w2.DST, [0xF3, 0x6D], "REP INMW", 1), "cb": ("IY", w2.DST, [0xA7], "CMPBKW", 1),
+    "rc": ("IY", w2.DST, [0xF3, 0xA7], "REPE CMPBKW", 1), "cs": ("IY", w2.DST, [0xAF], "CMPMW", 1),
+    "rs": ("IY", w2.DST, [0xF3, 0xAF], "REPE CMPMW", 1), "lm": ("IX", w2.SRC, [0xAD], "LDMW", 1),
+    "rl": ("IX", w2.SRC, [0xF3, 0xAD], "REP LDMW", 1),
+    "pa": ("SP", oc.STACK_TOP, [0x50], "PUSH AW", 1), "po": ("SP", oc.STACK_TOP - 8, [0x5B], "POP BW", 1),
+    "cn": ("SP", oc.STACK_TOP, [0xE8, 0x00, 0x00], "CALL $+3", 1),
+    "cf": ("SP", oc.STACK_TOP, lambda n: [0x9A] + _w(n) + _SEGW, "CALL far next", 1),
+    "cr": ("SP", oc.STACK_TOP, [0xE8, 0x02, 0x00, 0xEB, 0x03, 0xC2, 0x00, 0x00], "CALL $+5 ; BR $+5 ; RET 0", 1),
+    "i3": ("SP", oc.STACK_TOP, [0xCC], "BRK 3", 1), "ua": ("SP", oc.STACK_TOP, [0x60], "PUSH R", 1),
+    "pm": ("SP", oc.STACK_TOP, [0xFF, 0x34], "PUSH word [IX]", 1),
+    "qm": ("SP", oc.STACK_TOP - 8, [0x8F, 0x04], "POP word [IX]", 1),
+    "sw": ("IX", w2.SRC, [0x89, 0x04], "MOV [IX], AW", 1), "ad": ("IX", w2.SRC, [0x01, 0x04], "ADD [IX], AW", 1),
+    "xc": ("IX", w2.SRC, [0x87, 0x04], "XCH AW, [IX]", 1), "ld": ("IX", w2.SRC, [0x8B, 0x04], "MOV AW, [IX]", 1),
+}
+_RMOV = {"IY": 0xBF, "IX": 0xBE, "SP": 0xBC}
+
+
+def _jform(name, odd):
+    reg, ev, sub, txt, n = JF[name]
+    v = ev + 1 if odd and reg != "SP" else ev - 1 if odd else ev
+    pre = [_RMOV[reg]] + _w(v) + [0xB9] + _w(n) + _FILB
+    text = f"MOV {reg},{v:04X}h ; MOV CW,{n} ; ROL BP,16 ; {txt}   ; {'odd' if odd else 'even'}"
+    if callable(sub):
+        return (lambda nx: pre + sub(nx), text, {})
+    return (pre + sub, text, {})
+
+
+for _n in JF:
+    XS2[f"{_n}e"] = _jform(_n, 0)
+    XS2[f"{_n}o"] = _jform(_n, 1)
+w4.XS.update(XS2)
+PY = ("ps", "pi", "pa", "po", "cn", "cr", "sa", "la")
+XG2 = {     # name: (windows (y, lead, al, w, wl), note); wl << 2 is ORed into WTC: 1000h per I/O wait
+    "j": ([(f"{n}{p}", "f0", al, 0, 0) for n in JF for p in "eo" for al in (0, 1)],
+          "the wait behind the last EU cycle of 26 forms, a single cycle against a no-wait pair"),
+    "s2": ([(y, f"{h}{s}", al, 2, 0) for y in ("ps", "pi", "cr", "pa") for h in "FP" for s in SEQS for al in (0, 1)],
+           "stack forms behind the filler / a push and every sequence of up to four INC BW / NOP at 2 waits"),
+    "s1": ([(y, f"{h}{s}", al, 1, 0) for y in ("ps", "pi", "cr", "pa") for h in "FP" for s in S3 for al in (0, 1)],
+           "the same with sequences of up to three at 1 wait"),
+    "gs": ([(y, f"{h}{s}", al, 0, 0) for y in ("ad", "le", "si", "mu") for h in "OPF" for s in S3 for al in (0, 1)],
+           "forms with two late-released operand bytes behind OUT / PUSH / the filler and sequences of up to three"),
+    "hs": ([(y, f"{h}{s}", al, 0, 0) for y in ("s2", "x2", "a8", "a9") for h in "OPF" for s in S2 for al in (0, 1)],
+           "d16 stores and read-modify-write in a row behind OUT / PUSH / the filler and sequences of up to two"),
+    "es": ([(y, f"{h}{s}", al, w, 0) for y in ("in",) for w in W3 for h in "MQOP" for s in S2 for al in (0, 1)],
+           "IN AL,DW behind OUT / PUSH, with and without MOV r,r, and sequences of up to two at 0, 1, 2 waits"),
+}
+for _io in (0, 1, 2):
+    XG2[f"i{_io}"] = ([(y, l, al, w, _io << 12) for y in PY for w in (0, 2) for l in ("o0", "o1") for al in (0, 1)],
+                      f"request words behind OUT 20h,AL with the I/O field at {_io} waits, memory at 0 and 2 waits")
+# READY on the pair's second half: block 1 at 2 waits and READY (WTC 000Ch, PMC1 bit 7 set in the prelude)
+BREADY = {"br2": 2.0, "br3": 3.0, "br4": 4.0}
+BRY = [(f"{f}{k}", "f0", al, 0x0C) for f in ("r1", "mk", "r2") for k in ("a", "c", "e", "g") for al in (0, 1)]
+
+
+def _pmc1(m):
+    oc.es_store(m, 0xFF0A, 0x80)
+
+
+class ProgramR(Program):
+    m = None
+
+
 def programs():
     progs = {}
+    for g, (wins, note) in XG2.items():
+        name = f"{PFX}_{g}_r1"
+        p = w4.Program(name, [w4.xwindow(y, l, al, 1, w, wl, 0) for y, l, al, w, wl in wins],
+                       f"group {g}: {note}, PRC = 4Eh")
+        p.m = None
+        progs[name] = p
+    for g, hold in BREADY.items():
+        name = f"{PFX}_{g}_r1"
+        p = ProgramR(name, [r1.window(y, l, al, w) for y, l, al, w in BRY],
+                     f"group {g}: group b's elements with block 1 at 2 waits and READY, READY low {hold} clocks "
+                     f"from /MREQ's fall of a block-1 cycle, PRC = 4Eh", init=_pmc1)
+        p.m = (0, round(hold * w4.CLK), 3, 0x02)
+        progs[name] = p
     for g, wins in GROUPS.items():
         name = f"{PFX}_{g}_r1"
         cls = Program if g in PAGED else ph.Program

@@ -4543,3 +4543,17 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   work order 49 builds it. F G H I E2 reproduced, unread; two guessed rules refuted (18
   gained / 140 lost; 0 / 3,972). The request word behind a long I/O write (P3) was not
   exercised (I/O waits left at 0).
+- **2026-11-25, second socket session for the corpus groups (build/overseer/miss339-rows2/
+  ROWS2.md; rows339.py, 12 more f5_wy_* programs, 2,144 windows, two captures equal).** P3:
+  the request word's wait for the EU's own I/O write holds for PUSH r16 and POP r16 (8
+  windows at 2 I/O waits, none lost); PUSH imm8 (10 windows, one or two clocks later on
+  silicon) and CALL near behind a five-clock I/O write (4, a second fetch the core has and
+  silicon has not) stay open. F: stepped across a fetch, RET imm16 and PUSH sreg have the
+  request word one word too late in the core (the `open` word belongs behind it); trial,
+  the two words changed places: 17 corpus runs gained, 0 lost on 5,448; probe f 206 to 214
+  of 216, s2 428 to 493 of 496. B: `J` words are REP STMW, REP MOVBKW, MOVBKW, INMW, REP
+  INMW, CALL near; `D` words STMW single, CALL far, BRK 3, RET, PUSH / POP, PUSH R, loads,
+  stores, RMW; a first half stretched by READY keeps the clock, a stretched second half
+  does not; no property the microcode names separates the sets. G: one state (an I/O
+  write, one single-byte instruction, the form at an odd address). H: two d16 immediate
+  stores in a row, every even alignment. E2: OUT ; MOV r,r ; IN at even alignment. Unread.
