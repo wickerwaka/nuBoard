@@ -267,6 +267,24 @@ def rom_walk(code: bytes, cl: int, taken: bool, limit: int = 4000):
     return None, notes | {"no E reached"}
 
 
+def ramen_mode(f, inta, rsv) -> str:
+    """(WO48) the RAMEN marks of a word as v35_useq decodes them (uasm mode_decode on the fields): "fa" (f with the
+    flush bit: the access wait), "p1" / "p0" (a posting word with vk / with flush and not f: the mode posts), "er"
+    (vk with flush on a word with no F, bus wait or post: the early release). The model is RAMEN 1's: fa is an F
+    word and never a FLUSH, p1 posts, p0 posts nothing and is no FLUSH, er is a word with no act."""
+    b = f.get("bus", 0)
+    post = bool(b) and b not in (inta, rsv)
+    if f.get("f") and f.get("flush"):
+        return "fa"
+    if post and f.get("vk"):
+        return "p1"
+    if post and f.get("flush"):
+        return "p0"
+    if f.get("vk") and f.get("flush") and not f.get("bi") and f.get("rl", 0) != U.RL_X:
+        return "er"
+    return ""
+
+
 def rom_acts(code: bytes, cl: int, taken: bool):
     """The ROM path as model acts: ([set], notes) or (None, notes)."""
     path, notes = rom_walk(code, cl, taken)
@@ -307,13 +325,14 @@ def rom_acts(code: bytes, cl: int, taken: bool):
             wait[i] = ("I" if rl == 2 else "C") if alt else "B"
         if f.get("f"):
             acts[i].add("D")
-        if f.get("flush"):
+        mode = ramen_mode(f, inta, rsv)     # (WO48) RAMEN 1's reading of fa / p1 / p0 / er
+        if f.get("flush") and not mode:
             acts[i].add("F")
         if arm_pending and (f.get("d1") == oprw or f.get("d2") == oprw):
             acts[i].add("K")
             arm_pending = False
         b = f.get("bus", 0)
-        if b and b not in (inta, rsv):
+        if b and b not in (inta, rsv) and mode != "p0":
             posts.append((i, b))
             if b == E("v35_bus_e", "memwd"):
                 arm_pending = True

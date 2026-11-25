@@ -10262,3 +10262,26 @@ bodies, no second body. With RAMEN 1 every routine keeps its clocks. Record: bui
   posts nothing but is still the request's place (BRK's pushes, max(W + 8, L + 5) at 2 waits).
 - Not built: PREPARE, PUSH DS0 (a release mark in front of the early end, still in design), CALL memptr16's other
   modes, CALL near / far behind a store lead at 2 waits, BRKV's full-queue leads.
+
+## Work order 48: RAMEN round 5 (the early release, the release word's wait, REP CMPM's first element, PREPARE's copy loop)
+
+Built on work order 47's candidate (REP CMPBK as landed). Source: build/overseer/ramen-design5 DESIGN5.md and the
+store-set groups f5_wv_e / f / g / ha / hc / i. Record: build/overseer/wo48/rtl.md. No new port, no budget change.
+
+- **`er`, the early end with the release a word ahead (sequencer).** The vk bit with the flush bit on a plain word.
+  With RAMEN 0 the word releases the next opcode, the word after it is the E word (no release of its own: `e2_q`),
+  the word after that the dispatch (the early end's `ee_q` / `ed_q`); with RAMEN 1 a word with no act; never a FLUSH
+  word. PUSH sreg: silicon starts a fetch a clock ahead of the early end's E.
+- **The release word's wait (bus unit).** A word that releases operand bytes (rl 1 / 2) and is not bus-idle waits
+  while the EU's memory write is on the pins with a clock left after the next. The sequencer presents it as a free
+  code of the word kind (`wk_nx`: rl=x with flush, no bi; alt keeps CH_BNEXT's mark); the bus unit's other readers
+  of the kind (the slot term, wkf, wkr, wkp, wkbn) keep their meaning. No RAMEN term.
+- **REP CMPM:** the first read a mode post, the access wait with IY's step, the datum wait on the post's fifth word
+  (the compare on the datum as it arrives); the first element writes CW on its own book clocks, the loop and its
+  take point unchanged. REP CMPBK stays as landed (one body cannot give its RAMEN 0 clocks with today's take point).
+- **PREPARE:** one word with no act in front of every copy after the first (RAMEN 1, levels 3 and up: silicon's
+  copies after the first are a clock later); the tail is written twice and shared.
+- **REP STM / REP MOVBK:** the exit's bus-idle word is a word with no act in every reachable RAMEN 1 state.
+- **The 40-bit format's NT pages** are full (X NT 48, Y NT 48 of 48). The assembler's feedback loop also gives back
+  the layout-made jumps of an NT entry when a source jump finds the page full (`_nt_room`); a jump costs no clock.
+- validation/v35s/qprobe/tools/romcheck.py reads fa / p1 / p0 / er as the sequencer does at RAMEN 1.

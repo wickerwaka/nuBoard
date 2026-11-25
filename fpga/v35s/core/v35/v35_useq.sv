@@ -251,13 +251,24 @@ module v35_useq
     // meaning: wk_bn below excludes bi)
     reg [8:0]  cnt = 9'd0;                  // the loop counter (declared here: the early end reads it)
     wire        ee_v = kk[4] && !kk[5] && kk[2:1] != 2'd3 && !e_post        // (WO47) vk on a post: p1
+                       && !kk[0]                                         // (WO48) vk with flush: er
                        && (s5 == L40_SQ_NEXT || s5 == L40_SQ_JMP || s5 == L40_SQ_CALL || s5 == L40_SQ_RET
                            || (s5 == L40_SQ_LOOP && cnt == 9'd1));
     wire        ee_b = kk[6] && kk[5] && !kk[8];
     // ((WO47, round 4) work order 46's mode branch, a JC on DN with vk entering REP STM's and REP
     // MOVBK's RAMEN 0 bodies, is withdrawn with those bodies: the two routines run one body in both
     // modes, user ruling 2026-11-24)
-    wire        ee_nx = (ee_v || ee_b) && !ramen;
+    // (WO48, README "WO48") the early end with the release a word ahead (`er`): the vk bit with the flush
+    // bit on a plain word (no F, no bus wait, no post; never a FLUSH word in either mode). With RAMEN 0 the
+    // word releases the next opcode (ro), the word executed after it is the E word (no release of its own:
+    // e2) and the word after that the dispatch (ee_q / ed_q as the early end's); with RAMEN 1 a word with no
+    // act. uasm checks the code on the packed image and the word after it (_finish)
+    wire        er_c = kk[4] && kk[0] && !kk[7] && !kk[5] && kk[2:1] != 2'd3 && !e_post;
+    wire        er_nx = er_c && !ramen;
+    reg         er_q = 1'b0;                // the word now is an `er` word (RAMEN 0)
+    reg         e2_q = 1'b0;                // the word now is the E word behind it
+    wire        e2_nx = (er_q && ex) || (e2_q && !ex);     // the word read now follows it (or is it still, stalled)
+    wire        ee_nx = ((ee_v || ee_b) && !ramen) || e2_nx;
     // (WO47, README "WO47") three more free codes of the K field, each read with RAMEN:
     //   `fa`, the access wait: f with the flush bit (a FLUSH word never waits, uasm). With RAMEN 1 an
     //     F word (it waits for its request's cycle as F does) that takes nothing: `w_fa` tells the EU
@@ -287,9 +298,13 @@ module v35_useq
         if (!reset_n) begin
             ee_q <= 1'b0;
             ed_q <= 1'b0;
+            er_q <= 1'b0;
+            e2_q <= 1'b0;
         end else if (ce_a) begin
             ee_q <= ee_nx;
             ed_q <= ed_nx;
+            er_q <= er_nx;
+            e2_q <= e2_nx;
         end
     end
     v35_uword_t wnx;
@@ -298,11 +313,13 @@ module v35_useq
         {wnx.e, wnx.f, wnx.nb, wnx.bi, wnx.vk, wnx.ro} = kk[8:3];
         if (ee_nx) begin
             wnx.e = 1'b1;
-            wnx.ro = 1'b1;
+            wnx.ro = !e2_nx;                // (WO48) behind an `er` word the release is done
             wnx.nb = 1'b0;
         end
+        if (er_nx)
+            wnx.ro = 1'b1;                  // (WO48) `er`: the next opcode released a word ahead
         wnx.rl = v35_rl_e'(kk[2:1]);
-        wnx.flush = kk[0] && !kk[7] && !e_post;    // (WO47) not fa's, not p0's
+        wnx.flush = kk[0] && !kk[7] && !e_post && !er_c;    // (WO47) not fa's, not p0's; (WO48) not er's
         if (fa_c && !ramen)
             wnx.f = 1'b0;                   // (WO47) the access wait with RAMEN 0: a plain word
         wnx.pop = v35_pop_e'(rpp);
@@ -550,8 +567,13 @@ module v35_useq
     // word never carries vk), so the bus unit can keep the fetch chained behind a write's fetch
     // from starting on the clock this word executes
     wire        wk_bn = word_nx.nb && !word_nx.e && !word_nx.bi;     // (WO46) nb with bi: the early end's mark
-    assign wk_nx.flush = word_nx.flush || wk_st || wk_bn;
-    assign wk_nx.rlx = word_nx.rl == RL_X;
+    // (WO48, README "WO48") a word that releases operand bytes (rl 1 / 2) and is not a bus-idle word presents
+    // the kind's free code rl=x with flush (no bi; alt keeps wk_bn's mark): the bus unit's release-word wait
+    // (it waits while the EU's memory write has a clock left after the next). No word has rl=x with a FLUSH
+    // (uasm checks it on the image), and no FLUSH word releases without bi (likewise)
+    wire        wk_rl = (word_nx.rl == RL_1 || word_nx.rl == RL_2) && !word_nx.bi;
+    assign wk_nx.flush = word_nx.flush || wk_st || wk_bn || wk_rl;
+    assign wk_nx.rlx = word_nx.rl == RL_X || wk_rl;
     // (qprobe round 21, spec 10 A1 / Q42's second half, C_NOCH) the commit word that releases a
     // byte (bi with vk and rl == RL_1: `P C`) presents the kind's free code, alt alone (bi
     // low): the bus unit's C wait without the fetch chained behind a write's fetch. alt is the
@@ -902,16 +924,20 @@ module v35_useq
         w_ref = w_raw;
         if (ee_nx) begin
             nx_ref.e = 1'b1;
-            nx_ref.ro = 1'b1;
+            nx_ref.ro = !e2_nx;
             nx_ref.nb = 1'b0;
         end
+        if (er_nx)
+            nx_ref.ro = 1'b1;
         if (ed_nx)
             nx_ref.seq = SQ_DISP;
         if (ee_q) begin
             w_ref.e = 1'b1;
-            w_ref.ro = 1'b1;
+            w_ref.ro = !e2_q;
             w_ref.nb = 1'b0;
         end
+        if (er_q)
+            w_ref.ro = 1'b1;
         if (ed_q)
             w_ref.seq = SQ_DISP;
         // (WO47) the access wait and the mode posts, decoded from the reference's own fields
@@ -936,7 +962,8 @@ module v35_useq
             ref_mode.flush = 1'b0;
             if (rm)
                 ref_mode.bus = BQ_NONE;
-        end
+        end else if (w.vk && w.flush && !w.bi && w.rl != RL_X)     // (WO48) er: never a FLUSH
+            ref_mode.flush = 1'b0;
     endfunction
     wire       kw_ref = nx_ref.d1 == MD_OPRW || nx_ref.d2 == MD_OPRW;
     always @(posedge clock) begin

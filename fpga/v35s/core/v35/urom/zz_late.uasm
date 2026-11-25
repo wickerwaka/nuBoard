@@ -28,9 +28,8 @@ routine rep_lk op=F0 page=rep why="(F5d) REP then BUSLOCK: the lock pin not buil
 ; point on the next element's request word (str.uasm).
 ; the compares' first element enters the element's rest without a take point (silicon takes
 ; after the first element, never before it: f5_repint, f5_si_ops)
-routine si_first why="(F5e) REP CMPBK / CMPM: the first element's step word, the loop's own carries the take point; function only"
+routine si_first why="(F5e) REP CMPBK: the first element's step word, the loop's own carries the take point; function only ((WO48) REP CMPM's first element is its routine's own words, its rcm_f / rcm_u gone)"
 rcb_f: ra=IY wid=WORD alu=STEP ax=RA jmp=rcb_u ; c31: SIGMA = IY + the width (rcb_t's act); the element's rest
-rcm_f: ra=IY wid=WORD alu=STEP ax=RA jmp=rcm_u ; b: SIGMA = IY + the width (rcm_b's act); the element's rest
 
 ; a compare's take: the next element's read posted before the tests (the overrun) is waited for
 ; and its datum dropped, then the interrupt entry (the element is read again after RETI)

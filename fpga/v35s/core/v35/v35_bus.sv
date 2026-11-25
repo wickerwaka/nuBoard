@@ -814,19 +814,27 @@ module v35_bus
     // write: the request word executes from the write's next-to-last clock). Both modes; with
     // RAMEN 1 no request word executes inside the EU's own write (F waits for the write's end)
     wire        yw_nx = bz_nx && ck_nx == K_WRITE && r2_nx;
-    assign ph_nx = (wk_nx.disp && !wk_nx.bi && bnd_w) || (wk_nx.bi && !wk_nx.rlx && !wk_nx.alt && (bp_nx || (kbp && (b4w_nx || lcw_nx))))
+    // (WO48, README "WO48") the release word's wait: a word that releases operand bytes (rl 1 / 2) and is not a
+    // bus-idle word (the kind's free code rl=x with flush and no bi: `krl`) waits while the EU's memory write is
+    // on the pins and has a clock left after the next (`bz`, read for the EU's write alone); it may execute on
+    // the write's next-to-last clock. No RAMEN term: with RAMEN 1 the F waits keep such a word from running
+    // under an EU write (the receipts). The other terms read the kind as before: krl is excluded where rlx or
+    // flush alone was read
+    wire        krl = wk_nx.rlx && wk_nx.flush && !wk_nx.bi;
+    wire        rw_nx = krl && bz_nx && ck_nx == K_WRITE;
+    assign ph_nx = rw_nx || (wk_nx.disp && !wk_nx.bi && bnd_w) || (wk_nx.bi && !wk_nx.rlx && !wk_nx.alt && (bp_nx || (kbp && (b4w_nx || lcw_nx))))
                    || (kst && (bp_nx || b2s_nx))
                    || (wk_nx.bi && wk_nx.alt && !wk_nx.rlx && !kst && (cbw_nx || (b2s_nx && !c3n_nx)))
                    || (cr_k && (cbw_nx || b4w_nx || (b2s_nx && !few_b && !c3n_nx)))
-                   || (wk_nx.rlx && !wk_nx.bi && (wk_nx.alt ? sla_nx : sl_nx))
+                   || (wk_nx.rlx && !wk_nx.bi && !wk_nx.flush && (wk_nx.alt ? sla_nx : sl_nx))
                    || (wk_nx.rlx && wk_nx.bi && (wk_nx.alt ? (fb_nx && !fl_n) : (fy_nx || yw_nx)));
     always @(posedge clock) begin
         if (!reset_n || ce_a) begin
             wkd <= wk_nx.disp && !wk_nx.bi;     // ((r24) dispatch with bi: kbp's code, a B word)
-            wkf <= wk_nx.flush && !wk_nx.alt;     // (round 23: flush with alt is the strict word)
-            wkr <= wk_nx.rlx && !wk_nx.alt;
-            wkp <= !(wk_nx.disp || wk_nx.rlx || wk_nx.bi) && (wk_nx.flush == wk_nx.alt);     // ((r24) wkbn's code is a word with no act)
-            wkbn <= wk_nx.flush && wk_nx.alt && !wk_nx.bi && !wk_nx.rlx && !wk_nx.disp;
+            wkf <= wk_nx.flush && !wk_nx.alt && !wk_nx.rlx;     // (round 23: flush with alt is the strict word; (WO48) with rlx: krl)
+            wkr <= wk_nx.rlx && !wk_nx.alt && !wk_nx.flush;     // ((WO48) rlx with flush: krl)
+            wkp <= !(wk_nx.disp || wk_nx.bi) && (wk_nx.rlx ? wk_nx.flush : (wk_nx.flush == wk_nx.alt));     // ((r24) wkbn's code is a word with no act; (WO48) krl's too: a release word as before)
+            wkbn <= wk_nx.flush && wk_nx.alt && !wk_nx.bi && !wk_nx.disp;     // ((WO48) with rlx: a release word with wk_bn's mark)
         end
         if (!reset_n) begin
             aft <= 1'b0;

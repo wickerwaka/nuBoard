@@ -398,7 +398,7 @@ class Word:
     post_e: bool = False
     open: bool = False      # a word the measured cost needs whose act the sources do not name
     ee: bool = False        # (WO46) the early end's mark (`ee`; ee_code places its code)
-    mode: str = ""          # (WO47) "fa" (the access wait), "p1" / "p0" (the mode posts)
+    mode: str = ""          # (WO47) "fa" (the access wait), "p1" / "p0" (the mode posts); (WO48) "er"
 
 
 @dataclass
@@ -496,16 +496,20 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 # CH_BNEXT marks): vk alone on a plain word (a LOOP word: E on the loop's exit
                 # only), nb on a bus-idle word (bi)
                 fields["_ee"] = 1
-            elif k in ("fa", "p1", "p0"):
+            elif k in ("fa", "p1", "p0", "er"):
                 # (WO47, the core README "WO47") three marks RAMEN reads (v35_useq fa_c, e_pm):
                 #   fa  the access wait: an F word that takes nothing; with RAMEN 1 it waits for its
                 #       request's cycle as F does (the datum taken by an F word behind it), with
                 #       RAMEN 0 it is a plain word. In the word: f with the flush bit
                 #   p1  a posting word that posts with RAMEN 1 only (in the word: vk on the post)
                 #   p0  a posting word that posts with RAMEN 0 only (the flush bit on the post)
-                # Codes and checks below (the parse) and in l40_pack (the decode on the image)
+                #   er  (WO48) the early end with the release a word ahead: with RAMEN 0 this word
+                #       releases the next opcode (N), the word after it is the routine's E word (no
+                #       release of its own) and the word after that the dispatch; with RAMEN 1 a word
+                #       with no act. In the word: vk with the flush bit on a plain word (never a FLUSH)
+                # Codes and checks below (the parse, _finish) and in l40_pack (the decode on the image)
                 if fields.get("_mode"):
-                    raise UasmError(f"{path}:{ln}: one of fa, p1, p0 a word")
+                    raise UasmError(f"{path}:{ln}: one of fa, p1, p0, er a word")
                 fields["_mode"] = k
             elif k == "alt":
                 # (qprobe round 10) the bus wait's second kind, in the word's vk bit (read by
@@ -547,7 +551,13 @@ def parse_word(text: str, path: str, ln: int) -> Word:
             raise UasmError(f"{path}:{ln}: {mode} on a word whose sequencing is not NEXT, JMP, JC or JNC "
                             "(and not a jump on DN)")
         posts = fields.get("bus") and fields.get("bus") != enum_value("v35_bus_e", "rsv")
-        if mode == "fa":
+        if mode == "er":
+            if (fields.get("f") or fields.get("bus") or fields.get("rl") or fields.get("ro") or fields.get("pop")
+                    or fields.get("seq", enum_value("v35_seq_e", "next")) != enum_value("v35_seq_e", "next")):
+                raise UasmError(f"{path}:{ln}: er is a plain word's mark: no F, post, release, pop or jump")
+            fields["vk"] = 1
+            fields["flush"] = 1
+        elif mode == "fa":
             if fields.get("f") or fields.get("bus") or opr in srcs:
                 raise UasmError(f"{path}:{ln}: fa is the access wait: no f of its own, no post, and it "
                                 "takes no datum (no OPR source)")
@@ -606,6 +616,17 @@ def parse_file(path: Path) -> list[Routine]:
 
 def _finish(r: Routine) -> None:
     """The word after E: present (exactly one) or implicit; it is the dispatch (DISP)."""
+    # (WO48) the word after an `er` word is the early end's E word with RAMEN 0: a word of the routine with
+    # no label, no wait, mark, release, pop, post or sequencing of its own, and a word follows it (the
+    # early end's dispatch)
+    for i, w in enumerate(r.words):
+        if w.mode != "er":
+            continue
+        nxt = r.words[i + 1] if i + 2 < len(r.words) else None
+        if nxt is None or nxt.label is not None or nxt.mode or nxt.ee or any(
+                nxt.fields.get(k) for k in ("e", "f", "nb", "bi", "vk", "ro", "rl", "flush", "bus", "seq", "pop")):
+            raise UasmError(f"{r.path}:{w.line}: the word after an er word is a word with no wait, mark, "
+                            "release, pop, post or jump, and a word follows it")
     i = 0
     while i < len(r.words):
         if not r.words[i].fields.get("e"):
@@ -912,7 +933,8 @@ def ee_decode(v: int) -> bool:
     r = l40_fields(v)
     k = dict(zip(L40_KF, _kbits(r["K"])))
     s5 = r["SEQ"]
-    ev = k["vk"] and not k["bi"] and k["rl"] != RL_X and s5 in EE_SEQ and not l40_early(v)["post"]
+    ev = (k["vk"] and not k["bi"] and k["rl"] != RL_X and s5 in EE_SEQ and not l40_early(v)["post"]
+          and not k["flush"])      # (WO48) vk with flush: er
     eb = k["nb"] and k["bi"] and not k["e"]
     return bool(ev or eb)
 
@@ -929,6 +951,8 @@ def mode_decode(v: int) -> str:
         return "p1"
     if post and k["flush"] and not k["f"]:
         return "p0"
+    if k["vk"] and k["flush"] and not k["f"] and not k["bi"] and k["rl"] != RL_X:
+        return "er"
     return ""
 
 
@@ -1697,6 +1721,8 @@ def assemble(paths: list[Path] | None = None, share=None, l40: bool | None = Non
             for i, ad in enumerate(prog.where):
                 if ad == a and _seqk(flat.words[i][1].fields) in ("next", "jmp"):
                     new.add(i)
+        if not new - noj:
+            new |= _nt_room(flat, prog, img, noj)
         if not new - noj or len(rounds) > 16:
             break
         noj |= new
@@ -1706,6 +1732,39 @@ def assemble(paths: list[Path] | None = None, share=None, l40: bool | None = Non
                         "way out (the layout's placement, a copy, the take-entry codes):\n" + "\n".join(
                             f"  {a:4d} {nm}: {why}" for a, nm, why in img.misfits[:40]))
     return prog
+
+
+def _nt_room(flat, prog, img, noj) -> set:
+    """(WO48) room in a full NT page of the 40-bit format. When a word that cannot be sent back (its jump is the
+    source's) finds an NT page full (X NT, or Y NT's half without POST: 48 codes each), the entries whose every
+    user carries a jump the layout made (a stored run's entry from a source NEXT word) are the ones the layout can
+    give back: the source words of the entry with the fewest users (the lowest address first) go back to the
+    layout as words that must not jump (they fall through, or run on into a copy of their successor: a jump costs
+    no clock, so the routines' clocks are unchanged). One entry a round; the caller repeats."""
+    full = {("X" if "X page of form NT" in why else "Y") for _, _, why in img.misfits if "of form NT is full" in why}
+    if not full:
+        return set()
+    src = {}
+    for i, ad in enumerate(prog.where):
+        src.setdefault(ad, []).append(i)
+    users = {}
+    for a, (_, w) in enumerate(prog.words):
+        f = w.fields
+        if img.form(f) != "NT":
+            continue
+        x, y = _xp(f), _yp(f)
+        if "X" in full and any(x):
+            users.setdefault(("X", x), []).append(a)
+        if "Y" in full and any(y) and not _yposts(y):
+            users.setdefault(("Y", y), []).append(a)
+    cand = []
+    for key, ads in users.items():
+        ss = [i for a in ads for i in src.get(a, [])]
+        if ss and all(_seqk(flat.words[i][1].fields) == "next" for i in ss) and not set(ss) <= set(noj):
+            cand.append((len(ads), min(ads), ss))
+    if not cand:
+        return set()
+    return set(min(cand)[2])
 
 
 def share_report(prog: Program) -> str:
@@ -2211,6 +2270,12 @@ def l40_pack(prog, strict: bool = True) -> L40Image:
             img.misfits.append((a, prog.name_of(a), "the early end's decode differs from its mark"))
         elif W[a][1].ee and l40_fields(v)["SEQ"] not in EE_SEQ:
             img.misfits.append((a, prog.name_of(a), "an early end's SEQ is not NEXT, JMP, CALL, RET or LOOP"))
+        # (WO48) the release word's kind code (v35_useq wk_rl: rl=x with flush, no bi) is free: no word presents
+        # a FLUSH (the flush bit not taken by fa / p0 / er) with rl=x, or with a release (rl 1 / 2) and no bi
+        kq = dict(zip(L40_KF, _kbits(l40_fields(v)["K"])))
+        if kq["flush"] and not mode_decode(v) and (kq["rl"] == RL_X or (kq["rl"] in (1, 2) and not kq["bi"])):
+            img.misfits.append((a, prog.name_of(a), "a FLUSH word with rl=x or a release without bi: the release "
+                                "word's kind code (rl=x with flush) would not be free"))
         # (WO47) the RAMEN marks' decode selects exactly the marked words
         if mode_decode(v) != W[a][1].mode:
             img.misfits.append((a, prog.name_of(a), f"the RAMEN mark's decode ({mode_decode(v) or '-'}) "

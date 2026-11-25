@@ -4460,3 +4460,22 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   first flop and the raw pin are each one clock late; the harness is excluded (one lane
   module for both lanes). Recorded and parked (the user's ruling); the third-last-clock
   constant stays a known exception.
+- **2026-11-25, work order 48 landed: the fifth design round (gate build/overseer/land48
+  against land47).** REP CMPM at RAMEN 0 with its loop and take point as landed: the first
+  read a mode post, an access wait with IY's step, the datum wait on the post's fifth word;
+  the first element writes CW on its own two book clocks (the trial wrote it on the loop's
+  test word). PUSH sreg: the release mark `er` (vk with flush on a plain word), E forced on
+  the next word without a release of its own; two flops in the sequencer. The release-word
+  wait inside the existing word-kind code (rl=x with flush, no bi): a word that releases
+  operand bytes and is not bus-idle waits while the EU's memory write has a clock left after
+  the next; no port, no budget change; five bus readers restated so every older code reads
+  as before. PREPARE: a word on the copy loop's back edge (RAMEN 1, levels 3 and 4: 0 to 42
+  of 48). The assembler's layout gives back its own jumps when an NT page of the 40-bit
+  format is full (X NT and Y NT stay exactly full; a further distinct word may need a
+  format decision). Corpus, pins and every program-set line as land47 (30,197 of 30,536);
+  timing +2.877 / +2.750 / +2.895 ns; 9,852 LUT4, 2,664 FF, 36 RAM_5K; ROM 1,950 words.
+  Store sets RAMEN 1 / RAMEN 0: group e 216 / 108 of 216 (REP CMPM whole, REP CMPBK as
+  landed); f 72 / 72; i 96 / 96; g 105 / 18 of 120; ha and hc 55 of 60 each and the READY
+  sweeps s and t 8 of 12 / 2 of 6 with READY low (the parked commit word); u 16 of 16.
+  Open at RAMEN 0: REP CMPBK, PREPARE at waits and level 1 and up, CALL memptr16 beyond
+  [d16] unmeasured.
