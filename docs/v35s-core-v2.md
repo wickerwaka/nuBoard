@@ -4557,3 +4557,9 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   does not; no property the microcode names separates the sets. G: one state (an I/O
   write, one single-byte instruction, the form at an odd address). H: two d16 immediate
   stores in a row, every even alignment. E2: OUT ; MOV r,r ; IN at even alignment. Unread.
+- **2026-11-25, rulings on the corpus groups.** B (the `J` wait, 88 runs) and the small
+  groups G, H, E2 and PUSH imm8 (about 45 runs) are described differences: the rows and
+  reductions above are the record, no further probe. K (6 runs) is held for a mechanism:
+  no further condition on the third-last-clock constant. A (the bit-field head), C (one
+  bus-to-loader bit allowed), D, E1 and the request word of PUSH sreg / RET imm16 go into
+  work order 49. The delivery-clock pop is in design.
