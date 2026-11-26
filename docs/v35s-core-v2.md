@@ -4636,3 +4636,14 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   rows first (dpop.py), nothing lands until they are read. The E word's pop of the
   arriving opcode on its delivery clock is closed: the compensation stays, recorded as not
   distinguishable on the pins.
+- **2026-11-26, far [d16] word rows (build/overseer/dpop-rows/ROWS-DPOP.md; dpop.py,
+  f5_wz_n and f5_wz_o, 72 windows each, two captures equal) and ruling.** The third word
+  of BR far [d16] and CALL far [d16] meets a fetch's last clock in 76 of 144 windows:
+  silicon passes the 28 with five held (the queue's request line down) and holds the 48
+  with four or three; the six deciding windows (odd alignment, low byte, three held) are
+  held. So the passing follows the held count, not the byte's place or the alignment; no
+  new wire. Other bus-idle words on silicon still hold with the line down (plain 151,
+  popping and releasing 464, releasing 78 events): why this word differs is not known.
+  Ruling: land it declared OPEN (a word kind of its own, the measured condition named), in
+  work order 50. Also ruled: work order 50's loss of f5_lc_pb w14 and w30 is accepted
+  (the INTP sampler's residual at silicon's sled parity; six windows gained).
