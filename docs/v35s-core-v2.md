@@ -4741,3 +4741,21 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   4, 5, 6 held, the ask swept under a long instruction); for the empty-queue HALT a socket
   row first (HLDRQ across HALT's pop, with H1 / H2); P7 waits for the pending term. The
   grant stays held.
+- **2026-11-26, work order 51 landed: CLKOUT stops in STOP.** The clock generator
+  (v35_sfr) has a count of its own, started by STOP's mark word: at the tenth CLKOUT rise
+  behind the mark a gate holds CLKOUT high (`CK_STOP = 4'd10`, an ACCEPTED MEASURED
+  CONSTANT by the user's ruling: silicon stops at the rise 10 CPU clocks after the clock
+  STOP starts in, at fX/2, /4 and /8, over every shift of STOP and every position of the
+  controller's round; no mechanism known). NMI caught in STOP opens the gate (`st_nm`, a
+  register of v35_intc read only by v35_sfr); an NMI caught before the count's end cancels
+  the stop. The 26 R3a runs (introws clk_ runs) equal silicon's in both socket sessions;
+  the gate's comparison for a simulation was corrected to clkout.py's own (the socket's
+  one-tick CLKOUT offset, the trace from the anchor: the old one compared raw ticks and
+  the reset prelude's refresh cycles and no core could pass it; the landed core reads 0 of
+  26 under the corrected one). OPEN: the restart. Silicon's CPU clock itself stops in STOP
+  and restarts aligned to X1 from the NMI pin; the core's divider runs on, so CLKOUT's
+  first fall after the restart is on the core's grid, half a clock from silicon's
+  (clk_stop still differs, at the restart only). The STOP probe (refresh on) stops 19
+  edges in for silicon's 25: a refresh cycle is in silicon's window; out of scope. Corpus
+  30,385 of 30,536, 0 runs differ; every other report line the same. Timing at 17 ns
+  +2.966 / +3.368 / +2.868 ns; 9,803 LUT4, 569 ADD, 2,716 FF, 36 RAM_5K; no budget change.

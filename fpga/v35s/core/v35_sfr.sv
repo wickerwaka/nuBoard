@@ -108,7 +108,11 @@ module v35_sfr (
     output reg         hrq,
     input  wire        hlda_n,
     output wire        rdy_en,
-    output wire        rdy_lv
+    output wire        rdy_lv,
+    // (WO51) STOP's CLKOUT: STOP's mark executes (the sequencer's x_stop, the stop state set: a
+    // level read at ce_a), and the stop's NMI caught (v35_intc's st_nm, a ce_a register)
+    input  wire        x_stop,
+    input  wire        st_nm
 );
     localparam logic [7:0] PRC_RESET = 8'h4E;
     localparam logic [15:0] WTC_RESET = 16'hFFFF;
@@ -420,7 +424,50 @@ module v35_sfr (
     // difference, under a 30 ns tick). The pin's register loads `ck`'s next value, so the pin
     // and `ck` are one register's copy: no gate on a clock net, no derived clock
     reg        ck = 1'b0;
-    wire       ck_d = ce_rd || (ck && !ce_a);
+    // (WO51) CLKOUT in STOP (the user's ruling of 2026-11-26: built as a named constant). The
+    // clock generator's own count (`ck_sc`, CPU clocks: one a ce_a), started by STOP's mark (the
+    // stop state set, x_stop); at the CK_STOP-th CLKOUT rise behind the mark the gate closes
+    // (`ck_off`) and CLKOUT stays high (silicon stops it high, its last edge a regular rise).
+    // NMI's catch in STOP (st_nm) opens it: the fall at the next CPU clock middle, the clock
+    // regular from there (silicon: the first edge after the restart is a fall, no runt, no long
+    // phase); an NMI caught before the count's end cancels the stop (silicon: clk_se_16 / 32,
+    // the clock never stops). The core's CPU clock runs on under the gate (silicon's stops: its
+    // restart is X1-aligned, not on the old clock: not built, so the restart is on the core's
+    // grid, up to half a clock from silicon's). The bus is idle from the mark to the release.
+    //   CK_STOP  the ACCEPTED MEASURED CONSTANT (the user's ruling of 2026-11-26), as the
+    //            controller's ACK and RESP. Its evidence: silicon's CLKOUT stops at the rise 10
+    //            CPU clocks after the clock STOP starts in, the same at fX/2, /4, /8 and over
+    //            3-, 4-, 7-, 8- and 48-clock shifts of STOP (work order 34s, clk_st<p>_<s>, 11
+    //            of 11 runs, build/overseer/wo34s/RESULTS.md 4a); one clock for one clock over
+    //            four alignments against the scan's restart at fX/2 and fX/8, and the same in
+    //            all 18 positions of the controller's round with a request held at IE 0 (R3a,
+    //            validation/v35s/introws.py clk_sa<p>_<x> / clk_sr2_<x>, receipts
+    //            clk-r3a-socket{,-2}.json; build/overseer/int-rows/ROWS-INT.md 4): not the bus,
+    //            not the scan, not the controller's line. No mechanism is known (no pin shows
+    //            the clocks): a count. In the core it counts from the mark word (WO50: one clock
+    //            in front of STOP's loop)
+    localparam logic [3:0] CK_STOP = 4'd10;
+    reg  [3:0] ck_sc = 4'd0;
+    reg        ck_off = 1'b0;
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            ck_sc <= 4'd0;
+            ck_off <= 1'b0;
+        end else begin
+            if (ce_a) begin
+                if (x_stop)
+                    ck_sc <= CK_STOP;
+                else if (ck_sc > 4'd1)
+                    ck_sc <= ck_sc - 4'd1;
+            end
+            if (ce_rd && ck_sc == 4'd1) begin
+                ck_sc <= 4'd0;
+                ck_off <= !st_nm;
+            end else if (st_nm)
+                ck_off <= 1'b0;
+        end
+    end
+    wire       ck_d = ck_off || ce_rd || (ck && !ce_a);
     always_ff @(posedge clock)
         ck <= ck_d;
     // (work order 36) the port pins take an SFR store at the CPU clock's edge. Silicon
@@ -682,7 +729,8 @@ module v35_intc (
     output reg         tk_int,          // (F3b) the last take is INT
     output reg  [14:0] ic_if,
     output reg  [7:0]  ispr,
-    output reg  [4:0]  tk_vec           // the vector of the last take (IVEC's)
+    output reg  [4:0]  tk_vec,          // the vector of the last take (IVEC's)
+    output reg         st_nm            // (WO51) STOP's NMI caught (v35_sfr's CLKOUT gate: below)
 );
     reg         ms_v;                   // a macro-service request is pending
     reg  [2:0]  mc_ch;                  // the macro service's channel (the take's)
@@ -1515,6 +1563,16 @@ module v35_intc (
         end
     end
     assign wake = (stp || w_stop) ? st_rel : (i_wake || ms_v || dm_v);
+    // (WO51) the stop's NMI (v35_sfr's CLKOUT gate opens on it): from STOP's mark to the release,
+    // NMI's edge caught (the sampler's, as the release's count reads it) or one already in its
+    // delay or pending
+    initial st_nm = 1'b0;
+    always @(posedge clock) begin
+        if (!reset_n)
+            st_nm <= 1'b0;
+        else if (ce_a)
+            st_nm <= (stp || x_stop) && (st_nm || edge_c[0] || nd != 4'd0 || nmi_p);
+    end
 `ifndef SYNTHESIS
     // (WO33) +v35_idbg=FILE: the scan's state on every CPU clock with an event (t counts ce_a
     // from the reset exit, as v35_trace's): a restart, the raise, the offer, the release, a take

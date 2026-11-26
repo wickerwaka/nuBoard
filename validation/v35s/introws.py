@@ -407,6 +407,31 @@ def ck_same(x, y):
     return {k: v for k, v in a.items() if k != "end"} == {k: v for k, v in b.items() if k != "end"} and rel(x) == rel(y)
 
 
+def ck_gate(sock, sim):
+    """(WO51, gate fix) a socket capture against the simulation, as clkout.py's gate compares CLKOUT: silicon's
+    CLKOUT edges + OFFSET (its CLKOUT leads its bus pins by a scope tick), from the anchor on: the /MREQ falls
+    behind the anchor, CLKOUT's irregular half periods (the stop) and its last edge. ck_same (the repeat's) also
+    compares the trace from the run's start (the reset prelude's refresh cycles, which the core does not run) and
+    CLKOUT's raw ticks, so a simulation never matched it."""
+    from . import clkout as ck
+
+    def row(rec, off):
+        run, clk = rec["run"], rec["clk_ticks"]
+        ev, tr = run["edges"], run["trace"]
+        a = next((r for r in tr if r[1] == 0xFE40 and r[2] & 2), None)
+        if a is None:
+            return None
+        t0 = next(e[0] for e in ev if e[1] == "mreq_n" and e[2] == 0 and e[0] >= a[0] - 6)
+        bus = [(e[0] - t0) for e in ev if e[1] == "mreq_n" and e[2] == 0 and e[0] > t0]
+        cko = [(e[0] - t0 + off, e[2]) for e in ev if e[1] == "clkout" and e[0] + off >= t0]
+        tail = run.get("clkout_tail")
+        odd = [(x, xv, y - x) for (x, xv), (y, yv) in zip(cko, cko[1:]) if y - x != clk // 2]
+        last = (tail["last"][0] - t0 + off, tail["last"][2]) if tail else cko[-1] if cko else None
+        return dict(bus=bus, odd=odd, last=last, passed=run["passed"])
+    a, b = row(sock, ck.OFFSET), row(sim, 0)
+    return a is not None and a == b
+
+
 def ck_read(names, backends):
     for name in names:
         for be in backends:
@@ -567,7 +592,8 @@ def main():
             ok &= oc.compare(n, a.ref, cand, op, verbose=a.verbose)
         if cn:
             x, y = ck_load(a.ref), ck_load(cand)
-            bad = [n for n in cn if n not in x or n not in y or not ck_same(x[n], y[n])]
+            same = ck_same if a.action == "repeat" or not a.cand.startswith("sim") else ck_gate
+            bad = [n for n in cn if n not in x or n not in y or not same(x[n], y[n])]
             print(f"clk_ runs: {a.ref} / {cand}: {'EQUAL' if not bad else 'DIFFER'} ({len(cn) - len(bad)} of {len(cn)} "
                   f"runs){': ' + ' '.join(bad) if bad else ''}")
             ok &= not bad

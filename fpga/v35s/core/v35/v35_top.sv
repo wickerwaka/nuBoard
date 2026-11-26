@@ -114,6 +114,8 @@ module v35_top
     wire        tk_dm;                  // the last take is a DMA transfer's (v35_intc)
     // (F4d) bus hold and READY (v35_sfr's registers to the bus unit, /HLDAK back to the pins)
     wire        b_hrq, b_hlda_n, b_rdy_en, b_rdy_lv;
+    wire        st_nm;                  // (WO51) STOP's NMI caught (v35_intc), CLKOUT's gate (v35_sfr)
+    wire        x_stop;                 // (step B) STOP's halt word executes (v35_useq; (WO51) v35_sfr's CLKOUT count too)
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .wr_pend(sfr_pend), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb,
                  .ce_rd(ce_b), .rd_data(sfr_rd),
@@ -124,7 +126,8 @@ module v35_top
                  .dm_take(take_d), .dm_tend, .dm_tlast, .dm_rs, .dm_smp, .dm_last, .dk(b_dk),
                  .dkt(b_dkt), .dm_v,
                  .dm_go, .dm_ch, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd,
-                 .hrq(b_hrq), .hlda_n(b_hlda_n), .rdy_en(b_rdy_en), .rdy_lv(b_rdy_lv));
+                 .hrq(b_hrq), .hlda_n(b_hlda_n), .rdy_en(b_rdy_en), .rdy_lv(b_rdy_lv),
+                 .x_stop, .st_nm);
 
     // ---------------------------------------------------------------- CPU clock
     // (work order 36) the divider is a free-running X1/8 count from reset: `x_count` counts every
@@ -309,7 +312,7 @@ module v35_top
     // (step B) the sequencer's take points and acts (v35_useq): the dispatch, a string's take
     // point, an E word (no boundary; the arms dropped), a FLUSH; STOP's halt word (and executing),
     // the take's IVEC word, FINT
-    wire        x_disp, x_tki, x_end, x_nb, x_nbi, x_flush, w_stop, x_stop, x_ivec, x_fint;
+    wire        x_disp, x_tki, x_end, x_nb, x_nbi, x_flush, w_stop, x_ivec, x_fint;   // (WO51) x_stop: above (v35_sfr's)
     // (MX0) the datapath
     wire        opr_rdy, rq_busy, c_sgn, c_dtrap;
     wire        c_xc, c_snz, c_f1, c_dn, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
@@ -459,7 +462,7 @@ module v35_top
         .int_on, .ie(psw_ie), .ie_r(psw_ie_r), .brk(psw_brk), .pf_set, .pf_pre, .ms_b, .ms_end, .dm_go, .dm_v, .dm_ch,
         .igo, .sgo, .wake(h_wake), .take_d, .dm_rs, .dm_smp, .tk_dm, .ms_hlt,
         .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_clr, .tk_bs, .tk_lv, .tk_int,
-        .ic_if, .ispr, .tk_vec
+        .ic_if, .ispr, .tk_vec, .st_nm
     );
 
     // ---------------------------------------------------------------- the register RAM
