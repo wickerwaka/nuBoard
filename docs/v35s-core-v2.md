@@ -4705,7 +4705,7 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   gate) does not reproduce it on this tree. Open: the take out of HALT with IE 1 (4
   clocks early or late where no fetch is pending at HALT's pop). Not built: the
   controller's bus cycle (held for a mechanism), CLKOUT's stop count. Corpus 30,385 of
-  30,536 (+4, F37; 0 lost). Lattice 9 of 27 programs equal (f5_la_w1 .. w9 all 40, h7
-  and h0 24 of 32... see land50), phase 3 of 12, no program's count down; f5_lc_pa / pb,
+  30,536 (+4, F37; 0 lost). Lattice 9 of 27 programs equal (f5_la_w1 .. w9 all 40 of 40; h7
+  and h0 24 of 32), phase 3 of 12, no program's count down; f5_lc_pa / pb,
   f5_ld_pa .. pd, f5_wx_c, f5_wy_m, f5_wz_n / o equal. Timing at 17 ns +2.985 / +2.873 /
   +2.703 ns; 9,812 LUT4, 569 ADD, 2,704 FF, 36 RAM_5K; ROM 1,966 words; no budget change.
