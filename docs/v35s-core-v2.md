@@ -4709,3 +4709,15 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   and h0 24 of 32), phase 3 of 12, no program's count down; f5_lc_pa / pb,
   f5_ld_pa .. pd, f5_wx_c, f5_wy_m, f5_wz_n / o equal. Timing at 17 ns +2.985 / +2.873 /
   +2.703 ns; 9,812 LUT4, 569 ADD, 2,704 FF, 36 RAM_5K; ROM 1,966 words; no budget change.
+- **2026-11-26, correction to the work order 50 entry: the HALT hang.** The hang seen in
+  the grant trial is not a disagreement between the loop's take test and the dispatch's
+  term; with the grant rebased on the landed tree dma f4_dma still hangs. Traced: the
+  controller's cycle displaces the fetch raised on the clock of the pop in front of HALT;
+  HALT's stop is then in force, the displaced fetch is never made and the queue stays
+  empty; the loop takes the offer and `halt redisp` waits for a staged opcode that never
+  comes. Two parts: on the grant's side a fetch whose slot the controller's cycle takes
+  must keep its claim (as a fetch pending under an EU cycle does); on the landed loop's
+  side, latent, `halt redisp` cannot dispatch a take with the queue empty and the
+  prefetcher stopped. On the landed tree a fetch is always still made behind HALT's pop,
+  which is why the sweep does not reach it. The take test read ahead stays (harmless);
+  the loop side is being trialled with the grant.
