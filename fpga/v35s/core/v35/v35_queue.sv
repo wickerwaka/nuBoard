@@ -251,13 +251,18 @@ module v35_queue
     // (MX5) the fetch address from pfp. (qprobe round 16) No fetch of the new stream is granted on
     // the flush's clock (the line is low there but for the old stream's continuation, which
     // fetches at pfp), so the flush's offset no longer selects here (its sum fa_f is gone)
-    wire [19:0] fa_n = ps_base + {4'd0, pfp};
+    // (R1L) The stream's segment base ({PS, 0}) is the queue's own register, loaded where the stream's offset is
+    // loaded (the clock after a flush): a fetch of the old stream issued up to and on the flush's clock goes
+    // out at the old PS, though the far transfer's routine wrote PS words before its FLUSH (f5_wx_c: BR far,
+    // RET far imm16; f5_pj's prelude: 0016Eh, not 1016Eh)
+    reg  [19:0] fps = 20'hFFFF0;
+    wire [19:0] fa_n = fps + {4'd0, pfp};
     assign fetch_addr = fa_n;
 `ifndef SYNTHESIS
     // the direct arithmetic: the reference of `+v35_chk`
     wire       freq_x = !flush && flw == 3'd0 && !fdb && !susp && $signed(ob + n_ab - $signed({2'b00, rls})) <= 5'sd4;
     wire [15:0] pfp_x = pfp;
-    wire [19:0] faddr_x = ps_base + {4'd0, pfp_x};
+    wire [19:0] faddr_x = fps + {4'd0, pfp_x};
 `endif
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
@@ -325,6 +330,7 @@ module v35_queue
             {k4n, k4a, k5a, kfn, kfa} <= QKB_RST;
             flw <= 3'd0;
             pfp <= reset_ip;
+            fps <= ps_base;
             hip <= reset_ip;
             inflight <= 1'b0;
             discard <= 1'b0;
@@ -343,6 +349,8 @@ module v35_queue
             fdb <= fdb_nx;
             // (step D) the head's offset: a flush's target, else counted by the pops
             hip <= flush_r ? faddr_r : hip + {13'd0, reads};
+            if (flush_r)
+                fps <= ps_base;
             if (go_r) begin
                 inflight <= 1'b1;
                 odd <= pfp_g[0];

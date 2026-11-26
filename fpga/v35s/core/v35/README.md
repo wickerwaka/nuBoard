@@ -10285,3 +10285,37 @@ store-set groups f5_wv_e / f / g / ha / hc / i. Record: build/overseer/wo48/rtl.
 - **The 40-bit format's NT pages** are full (X NT 48, Y NT 48 of 48). The assembler's feedback loop also gives back
   the layout-made jumps of an NT entry when a source jump finds the page full (`_nt_room`); a jump costs no clock.
 - validation/v35s/qprobe/tools/romcheck.py reads fa / p1 / p0 / er as the sequencer does at RAMEN 1.
+
+## Work order 49: one batch of measured fixes (BRKV, PREPARE, BRKCS / RETRBI / the bank entry, RET far imm16, SHL [m],CL, the bit-field head, PUSH sreg / RET imm16, TOUT's pin, the give-way, the I/O write's wait, HALT's stop, the store's release, the stream's segment)
+
+Sources: build/overseer/r1-left (items 1 to 5), build/overseer/miss339 (trials 1, 2a; group C), build/overseer/progsets
+(P1 to P4), build/overseer/miss339-rows (trial A), build/overseer/miss339-rows2 (trial F). Record: build/overseer/wo49/rtl.md. ROM 1,950 -> 1,959 words; the
+40-bit format unchanged. One bit over the port budget (the user's ruling of 2026-11-25): `wl_b`, bus -> loader.
+
+- **BRKV:** BRK 3's first three words, then the V test on the fourth word (not taken `. . B . N .`; taken: BRK 3's
+  body from its fourth word). OPEN: why the test stands on the fourth word.
+- **PREPARE:** the level byte released one word later (`PP2 . P`). OPEN.
+- **BRKCS reg16** `P . BP . . B . . . . . F N .` (the 0F page's ModR/M head, the sixth word bus-idle); **RETRBI** the
+  page's bus-idle third word; **the interrupt's bank-switch entry** runs BRKCS's words from that routine's first (two
+  words and a bus-idle word in front of the switch): OPEN, an inference from one distance (30 clocks for 27).
+- **RET far imm16** on RET far's measured words: `. . Y D . . Y D . . F N .`, the immediate released on the second
+  datum word; the fixed delays and SUSP gone. OPEN: the extra word between the reads, the release's word.
+- **SHL / shift [m],CL:** the fourth word a slot word (`rl=x`) as the register form's (was bus-idle). Every socket run
+  with a memory shift by CL or RET far (qprobe rounds 8, 14, 26) is equal before and after.
+- **EXT / INS (both forms):** the head's fourth word a plain bus-idle word, the fifth the commit word (`bi alt`).
+  Round 24's socket set loses nothing (482 -> 498 of 540).
+- **PUSH sreg / RET imm16:** the request word the third word, the word with no act behind it (the cycle due five
+  clocks after Y; a five-clock fetch at 2 waits separates the placements). OPEN.
+- **TOUT's pin** copied at ce_rd as the port bits (v35_sfr `otout`); **the give-way** keeps `fx` on the fetch that
+  gave way; **the request word's wait** for the EU's own I/O write as for its memory write (`yw_nx`); **HALT's fetch
+  stop** does not cancel a fetch pending behind the EU's cycle (`fstop = hpr && !pend`).
+- **The store's release on the write's last byte cycle (Q127):** v35_bus `wl_b` (a ce_b register: the last byte
+  cycle of an off-chip EU memory write granted now: a single write, a pair's second half) restarts the loader's
+  decode-lead count `lc` as a release would, while the count runs from a release (lc below 4).
+- **The stream's segment:** v35_queue `fps`, the fetch's segment base, loaded with ps_base where pfp takes a flush's
+  offset (and in reset); `fetch_addr = fps + pfp`. A fetch of the old stream up to and on the flush clock goes out at
+  the old PS; MOV PS leaves the fetch segment until the next flush (silicon: f5_wy_p / f5_wy_q). The function bench
+  presets `fps` with PS.
+- Gate tools: validation/v35s/phase.py reads f5_ph_e / e1's socket receipts by their delay tag (`socket-d3676`), so
+  `gate` with no names compares every program; validation/v35s/clkout.py compares clk_pck's anchors that the socket
+  reached (silicon's bus stops after its fX/2 -> fX/4 change); the clk sim receipts regenerated.

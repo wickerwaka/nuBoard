@@ -238,6 +238,7 @@ int main(int argc, char** argv) {
         r->v35_core2_tb__DOT__dut__DOT__eu__DOT__psw = psw;
         r->v35_core2_tb__DOT__dut__DOT__eu__DOT__ds1 = t.in[8];
         r->v35_core2_tb__DOT__dut__DOT__eu__DOT__ps = t.in[9];
+        r->v35_core2_tb__DOT__dut__DOT__queue__DOT__fps = (t.in[9] << 4) & 0xFFFFF;   // (R1L) the stream's segment base: the queue's own register, preloaded with PS
         r->v35_core2_tb__DOT__dut__DOT__eu__DOT__ss = t.in[10];
         r->v35_core2_tb__DOT__dut__DOT__eu__DOT__ds0 = t.in[11];
         // ((MX0) CW / IX / IY are RAM words only: preloaded with the others below)

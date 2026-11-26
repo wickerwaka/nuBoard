@@ -561,6 +561,25 @@ def load(name, backend):
     return json.loads(receipt_path(name, backend).read_text())
 
 
+# (WO49, gate fix H1) the socket captures of f5_ph_e / f5_ph_e1 are tagged by the edge's delays
+# (`socket-d3676`, `socket-d3676-2`: phase socket f5_ph_e --delays 3676:8 --tag=-d3676); the
+# programs' own schedule is that one (edge_delay(j, 3676, 8)), so a plain `sim` receipt is
+# comparable with them. The gate and repeat read a socket receipt by this tag when the untagged
+# one does not exist (before, `gate` with no names stopped on FileNotFoundError at f5_ph_e and
+# never compared e, e1, g, g1, g2, g3, t)
+SOCKET_TAG = {"f5_ph_e": "-d3676", "f5_ph_e1": "-d3676"}
+
+
+def ref_name(name, ref):
+    """The receipt tag `ref` for program `name`: a socket tag gains the program's delay tag when
+    the untagged receipt is absent (SOCKET_TAG)."""
+    if ref.startswith("socket") and name in SOCKET_TAG and not receipt_path(name, ref).exists():
+        t = "socket" + SOCKET_TAG[name] + ref[len("socket"):]
+        if receipt_path(name, t).exists():
+            return t
+    return ref
+
+
 def stitched(harness, reload, mode, lane, limit, upto=None):
     """The whole trace (or its first `upto` records) in the first run's ticks."""
     reload()
@@ -962,6 +981,7 @@ def intr_report(backend, name="si_edge"):
 # ------------------------------------------------------------------ comparing
 def compare(name, ref, cand, progs, tol=1, pin_tol=4, verbose=False):
     prog = progs[name]
+    ref, cand = ref_name(name, ref), ref_name(name, cand)
     a, b = load(name, ref), load(name, cand)
     if a["program_sha256"] != b["program_sha256"] or a["image_sha256"] != b["image_sha256"]:
         print(f"{name}: the receipts are of different programs")

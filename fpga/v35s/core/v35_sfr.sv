@@ -439,6 +439,10 @@ module v35_sfr (
     // a deselect with the latch 1 makes no runt, with the latch 0 a one-tick high runt; a
     // deselect with PM07 = 1 releases the pin while it is high
     reg  [7:0] op0l, opm0, opmc0, op1l, opm1, opmc1, op2l, opm2, opmc2;
+    // (trial T2) TOUT's pin copy at the CPU clock's edge, as every other port bit's
+    reg        otout = 1'b1;
+    always_ff @(posedge clock)
+        if (ce_rd) otout <= tout;
     initial begin
         op0l = rst(8'h00); opm0 = rst(8'h01); opmc0 = rst(8'h02);
         op1l = rst(8'h08); opm1 = rst(8'h09); opmc1 = rst(8'h0A);
@@ -481,7 +485,7 @@ module v35_sfr (
     wire [7:0] p2d = opmc2 | ~opm2;
     wire [31:0] pv = {5'd0, rsck0, txd1, txd0, 1'b0, p2v[6:4], 1'b0,
                       p2v[2:1], 1'b0, ~opm1f[7] & op1l[7], opmc1[6] ? sck0 : op1l[6],
-                      opmc1[5] ? tout : op1l[5], ~opm1f[4] & op1l[4], intak_n, 3'd0,
+                      opmc1[5] ? otout : op1l[5], ~opm1f[4] & op1l[4], intak_n, 3'd0,
                       opmc0[7] ? ck_d : ~opm0[7] & op0l[7], ~opm0[6:0] & op0l[6:0]};
     wire [31:0] pd = {5'h1F, rsck_oe0, 2'b11, 1'b1, p2d[6:4], 1'b1, p2d[2:1], 1'b1, ~opm1f[7],
                       opmc1[6] || !opm1f[6], opmc1[5] || !opm1f[5], ~opm1f[4], opmc1[3], 3'b111,

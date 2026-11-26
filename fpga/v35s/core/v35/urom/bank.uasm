@@ -21,7 +21,7 @@
 ;   MOVSPB reg16: bank (reg & 7)'s SS, SP <- the bank in use's
 
 ; ---- the bank-switch entry: from intr (SIGMA {1, the level}); tmpc the instruction's start
-routine bsw why="(F3b) the bank-switch entry: silicon's (f3_bsw); function only"
+routine bsw why="(F3b) the bank-switch entry: silicon's (f3_bsw); (R1L) OPEN: the entry runs BRKCS's words from that routine's first (two words with no act, the bus-idle third, the switch, the saves with the sixth word bus-idle): the handler's first fetch 30 clocks behind the interrupted code's last (f5_pr_bank_p3, 44 of 44; 27 before); the two words have no act named"
 ; (F4b) a negative IVEC is a bank switch (800xh) or a macro service (FFFFh: urom/ms.uasm); tmpb
 ; holds it (intr's branch word); (F4c) or a DMA transfer (FFFEh: urom/xfer_dma.uasm's dm_q
 ; tells it from a bank switch and returns to bsw_i; the word count here is unchanged, so the
@@ -29,9 +29,12 @@ routine bsw why="(F3b) the bank-switch entry: silicon's (f3_bsw); function only"
 bsw_q: alu=INC ax=SIG wid=WORD             ; SIGMA <- the kind + 1 (0: a macro service)
     jnc=SNZ:msv                             ; the macro service
     jmp=dm_q                                ; (F4c) a DMA transfer or a bank switch
-bsw_i: d2=TB s2=PSW alu=BSW ax=SIG wf      ; tmpb <- the PSW; PSW: RB <- the level, IE BRK cleared, MD <- N/S
+bsw_i: open                                ; OPEN: (R1L) the entry runs BRKCS's words from the routine's first: a word with no act (the handler's first fetch 30 clocks after the interrupted code's last, f5_pr_bank; 27 without the three head words)
+    open                                    ; OPEN: (R1L) a word with no act (BRKCS's second)
+    bi                                      ; (R1L) B: the bus-idle third word (BRKCS's ModR/M pop; nothing to pop here)
+    d2=TB s2=PSW alu=BSW ax=SIG wf          ; tmpb <- the PSW; PSW: RB <- the level, IE BRK cleared, MD <- N/S
 bs_c: wr=PSWS wid=WORD ws=TB               ; the new bank's PSW save (no register read: the bank changed on the last clock)
-    wr=PCS wid=WORD ws=TC                   ; its PC save
+    wr=PCS wid=WORD ws=TC bi                ; its PC save; (R1L) B: the sixth word bus-idle (f5_wx_d: BRKCS at 0, 1 and 2 waits)
     ra=VPC wid=WORD alu=PASS ax=RA          ; SIGMA <- its vector PC
 sg_c: rb=PS wr=PS wid=WORD ws=RB            ; PS's flop from the bank's slot
     rb=DS0 wr=DS0 wid=WORD ws=RB            ; DS0's
@@ -41,9 +44,11 @@ sg_c: rb=PS wr=PS wid=WORD ws=RB            ; PS's flop from the bank's slot
     e                                       ; E
 
 ; ---- BRKCS reg16 (0F 2D, ModR/M 11 111 rrr): the bank the register's low three bits name
-routine brkcs op=2D page=0f why="(F3b) BRKCS: the bank-switch entry to bank reg & 7 with the next PC (f3_bins); function only"
-    pop=modrm eac=bkc_r                     ; pop the ModR/M byte: the register form
-    e                                       ; a memory form: not measured, nothing done
+routine brkcs op=2D page=0f why="(F3b) BRKCS: the bank-switch entry to bank reg & 7 with the next PC (f3_bins); (R1L, f5_wx_d, 30 windows at 0, 1 and 2 waits) BRKCS reg16 is `P . BP . . B . . . . . F N .`: the 0F page's ModR/M head (Q61's `P . BP`: the ModR/M byte popped and released on the bus-idle third word), the bank switch, the two saves with the sixth word bus-idle, the vector PC, the four segment words, FLUSH; OPEN: the two head words have no act named"
+    open                                    ; OPEN: (R1L) a word with no act (the page byte released by the loader: P)
+    open                                    ; OPEN: (R1L) a word with no act (`P . BP`)
+    pop=modrm eac=bkc_r rl=1 bi             ; (R1L) B P: pop the ModR/M byte on the bus-idle third word, released (Q61's `P . BP`); the register form
+    e ro                                    ; a memory form: not measured, nothing done
 bkc_r: ra=RM wid=WORD d1=TC s1=PC d2=TB s2=PSW alu=BSW ax=RA wf jmp=bs_c   ; tmpc <- the next PC; tmpb <- the PSW; PSW: RB <- reg & 7, IE BRK cleared
 
 ; ---- TSKSW reg16 (0F 94): the task switch
@@ -58,8 +63,11 @@ rl_c: ra=PCS rb=PSWS wid=WORD alu=PASS ax=RA d1=TB s1=RB   ; SIGMA <- the PC sav
     jmp=sg_c                                ; no register read; the segment flops, FLUSH, E
 
 ; ---- RETRBI (0F 91)
-routine retrbi op=91 page=0f why="(F3b) RETRBI: PC and PSW from the bank's saves (f3_bins, f3_bsw); function only"
-    jmp=rl_c                                ; the saves of the bank in use
+routine retrbi op=91 page=0f why="(F3b) RETRBI: PC and PSW from the bank's saves (f3_bins, f3_bsw); (R1L, f5_wx_d: the return's first fetch 26 / 28 / 30 clocks behind the stub's at 0 / 1 / 2 waits) the 0F page's bus-idle third word: `P . B . . . . . F N .`; OPEN: the first word has no act named"
+    open                                    ; OPEN: (R1L) a word with no act (was a jump to rl_c: the same clock)
+    ra=PCS rb=PSWS wid=WORD alu=PASS ax=RA d1=TB s1=RB   ; SIGMA <- the PC save; tmpb <- the PSW save (rl_c's word)
+    wr=PSWA ws=TB bi                        ; the PSW <- the save, all 16 bits (the bank by its RB); (R1L) B: the page's bus-idle third word
+    jmp=sg_c                                ; no register read; the segment flops, FLUSH, E
 
 ; ---- MOVSPA (0F 25): SS and SP from the bank the PSW save names
 routine movspa op=25 page=0f why="(F3b) MOVSPA: SS SP of the PSW save's bank (f3_bins movspa, movspa_rb5; f3_bsw); function only"

@@ -158,14 +158,14 @@ routine br_far op=EA book="BR far-label" diff=1 why="OPEN: (qprobe round 8, Q21)
 ; ---- RET imm16 (C2): V20 RET_IMM 00E4-00EA (Q, Q, SP -> IND SUSP MEMR, SP + 2 + imm, OPR -> PC F E
 ; FLUSH). The stack read posted, the immediate popped once the read is on the bus (DL DH: the
 ; frozen model's chained take, no take sync), F, SP + 2 + the immediate
-routine ret_imm op=C2 book="RET pop-value" diff=-1 why="OPEN: book error where the measured routine is shorter than the book (the qprobe shape below); silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q40) RET imm16 is `. . . Y DPP2 . . F N .` (the qprobe tr-reti runs, 12 / 12): SP into the address register, SP + 2, a word, Y, the stack read (Y + 3), the immediate popped under the wait and released on D, SP + 2 + the immediate, Q21's flush tail"
+routine ret_imm op=C2 book="RET pop-value" diff=-1 why="OPEN: book error where the measured routine is shorter than the book (the qprobe shape below); silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q40) RET imm16 is `. . . Y DPP2 . . F N .` (the qprobe tr-reti runs, 12 / 12): SP into the address register, SP + 2, a word, Y, the stack read (Y + 3), the immediate popped under the wait and released on D, SP + 2 + the immediate, Q21's flush tail; (WO49, build/overseer/miss339-rows2 ROWS2.md section 3, f5_wy_s2: RET 0 stepped across a five-clock fetch at 2 waits, 62 -> 124 of 124; corpus group F, 8 RET imm16 runs) OPEN, a word count read from the pins: the request word is the third word and the word with no act stands behind it (`. . Y . DPP2 . . F N .`: the read due five clocks after Y); at 0 and 1 wait the two placements give the same clocks"
     rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    open                                    ; OPEN: (qprobe round 12, Q40) a word with no act
-    rl=x bi                                 ; (qprobe round 12, Q40) Y: the request word (the read posted three words later)
+    rl=x bi                                 ; (qprobe round 12, Q40; WO49, miss339-rows2 F) Y: the request word, the third word (the read posted four words later)
+    open                                    ; OPEN: (qprobe round 12, Q40) a word with no act; (WO49) behind Y, not in front of it
     pop=dl                                  ; pop the immediate's low byte (released on D)
     pop=dh                                  ; pop its high byte
-    bus=MEMR seg=SS wid=WORD                ; post the read at SS:SP (Y + 3)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:SP (Y + 4)
     f d1=TA s1=OPR alu=ADD ax=SIG ay=DISP rl=2 ; D P P2: F: the return address into tmpa; SIGMA = SP + 2 + the immediate; the immediate released
     wr=SP wid=WORD ws=SIG alu=PASS ax=TA    ; SP <- SP + 2 + imm; the target into SIGMA
     open                                    ; OPEN: (qprobe round 12, Q40) a word with no act
@@ -194,22 +194,25 @@ routine retf op=CB book="RET far" diff=-1 why="OPEN: (qprobe round 8, Q21) RET f
 ; ---- RETF imm16 (CA): V20 RETF_IMM 00E4-00ED + RETF; the immediate popped once the first read is
 ; on the bus; the reservation from the first datum to the second read (the frozen model's
 ; ret_far_fetch=after: the request the immediate's take raised waits for the second read)
-routine retf_imm op=CA book="RET far pop-value" diff=2 why="OPEN: silicon longer than the book (F35-push-far-callf-retf2-pE-w0: the frozen model's reads issued at S+6 and S+16, the immediate taken at S+7 and S+8, a fetch at the second datum (S+19), the flush eight clocks after it, S+27); three book clocks with no act, the offset's read (S+5), SP + 2, the pops with SP and the next address, F with the reservation, five more, the segment's read (S+15), F: PS, SP + 2, + the immediate, SP with the target, SUSP (S+22: the fetch's end), four more, FLUSH, E"
-    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RET far pop-value 28) (the call and the shared delay's 2)
-    rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS   ; SP into the address register; post the offset's read (S+5)
+routine retf_imm op=CA book="RET far pop-value" diff=-1 why="OPEN: book error of one in the book check's machine (its refill fetch on the flush's clock), as RET far's; (R1L, the f5_wx_e / f5_wx_c ri windows, 48: RET far imm16 is `. . Y D . . Y D . . F N .` with the immediate popped under the first read's request and released on the second datum word: RET far's head (Y the third word, the offset's read on S + 6), the segment's read ten clocks after the offset's (one word more than RET far has between its reads), PS and the release (PP2) on its datum word, SP + 2 + the immediate, Q21's flush tail (the flush three clocks after the second read's end); the word counts are read from the pins (OPEN); before: OPEN: silicon longer than the book (F35-push-far-callf-retf2-pE-w0: the frozen model's reads issued at S+6 and S+16, the immediate taken at S+7 and S+8, a fetch at the second datum (S+19), the flush eight clocks after it, S+27); three book clocks with no act, the offset's read (S+5), SP + 2, the pops with SP and the next address, F with the reservation, five more, the segment's read (S+15), F: PS, SP + 2, + the immediate, SP with the target, SUSP (S+22: the fetch's end), four more, FLUSH, E"
+    rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    pop=dl wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG   ; pop the immediate's low byte (S+7); SP <- SP + 2; the segment's address
-    pop=dh                                  ; pop its high byte (S+8)
-    f d1=TA s1=OPR                          ; F: the offset into tmpa (S+9); the reservation (the second read)
-    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (RET far pop-value 28) (the call and the shared delay's 4)
-    bus=MEMR seg=SS wid=WORD                ; post the segment's read (S+15)
-    f wr=PS wid=WORD ws=OPR                 ; F: PS <- the segment (S+19)
-    rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    alu=ADD ax=SIG ay=DISP                  ; SP + 2 + the immediate
-    susp wr=SP wid=WORD ws=SIG alu=PASS ax=TA  ; SUSP (S+22: waits while the fetch at the datum runs); SP <- SP + 2 + imm; the offset into SIGMA
-    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (RET far pop-value 28) (the call and the shared delay's 3)
-    flush                                   ; FLUSH: the stream from the offset in the new PS
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    wr=SP wid=WORD ws=SIG rl=x bi           ; SP <- SP + 2; (R1L) Y: the request word, the third word as RET far's (the offset's read posted three words later)
+    pop=dl                                  ; pop the immediate's low byte (released on the second D)
+    pop=dh                                  ; pop its high byte
+    bus=MEMR seg=SS wid=WORD                ; post the offset's read at SS:SP (Y + 3)
+    fa                                      ; the access wait (RAMEN 1): the offset is taken four words on, in front of the next post (RET far's)
+    rb=SP wid=WORD d1=ADDR s1=RB alu=INC2 ax=RB    ; SP into the address register (the segment's); SP + 2
+    wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2
+    rl=x bi                                 ; (R1L) Y: the second request word, three clocks after the first datum word (RET far: two; OPEN: the word count is read from the pins)
+    open                                    ; OPEN: (R1L) a word with no act (RET far's)
+    f d1=TA s1=OPR                          ; F: the datum wait: the offset into tmpa, in front of the next post
+    bus=MEMR seg=SS wid=WORD                ; post the segment's read (Y + 3)
+    f wr=PS wid=WORD ws=OPR rl=2            ; D P P2: F: PS <- the segment (RAM and the flop); the immediate released (no fetch starts between the two reads on silicon)
+    rb=SP wid=WORD alu=ADD ax=RB ay=DISP    ; SP + the immediate
+    wr=SP wid=WORD ws=SIG alu=PASS ax=TA    ; SP <- it; the offset into SIGMA
+    flush bi                                ; FLUSH: the stream from the offset in the new PS; (qprobe rule 5) waits while a fetch's pin cycle runs
+    e ro                                    ; E: the target's opcode, once delivered; ro: released
 
 ; ---- CALL far (9A): V20 CALL_FAR_DIR 0068-006B + CALLF 022C-0232 (four Q pops, SUSP, PS pushed,
 ; PC pushed, PS and PC loaded, FLUSH E). The offset popped as a displacement (no take sync, the
@@ -542,14 +545,17 @@ routine brk_imm op=CD book="BRK imm8" diff=1 why="OPEN: silicon longer than the 
     bi                                      ; (qprobe round 13, Q44) B: the second bus-idle word
     open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
     open jmp=brk_y                          ; OPEN: (qprobe round 13, Q44) a word with no act; INT 3's request word
-routine brkv op=CE book="BRKV" xc=t diff=2 why="OPEN: silicon longer than the book: BRK 4 on V, BRK 3's body; not taken the decide and E (V20 INTO 010C-010D). (WO45, the wstore3 set f5_wu_k_r1 bv, 8 of 8 windows at four leads and both alignments) taken, the V test's word and then BRK 3's routine from its first word: every cycle of the break one clock after BRK 3's counted from the opcode's first word (vector read, PSW push, segment read, the two pushes). The mechanism is the taken conditional jump's row change: the V20's INTO is 010C (CONST 4 -> tmpbL; JMP O -> 010F) then 010F (FARJMP INT), INT3 is 0104 (CONST 3 -> tmpbL; SUSP) then 0105 (FARJMP INT): the same two words, and INTO's path has one taken jump more (a bubble clock each, the V20 ucore's S_ROW_CHG; docs/v35s-mechanisms/v30-opcodes.md INTO / INT3, v30-structure.md section 7); before: the test word jumped into BRK 3's second word, BRK 3's length, one clock short; the book's single BRKV figure (50, BRK 3's) does not separate the paths"
-    jc=XC:brk3_0                            ; the V test (taken: the break to vector 4, through BRK 3's first word: the taken jump's row change)
+routine brkv op=CE book="BRKV" xc=t diff=2 why="OPEN: silicon longer than the book: (R1L, f5_wv_d bv 18 windows and f5_wx_a 60 windows: taken and not taken behind full and emptied queues, 0 to 2 waits) BRKV is BRK 3's first three words (a word, the vector's address, the bus-idle third word), then the V test on the fourth word: not taken `. . B . N .` (three clocks more than a test on the first word; the book's 3 is not met: 6), taken BRK 3's body from its fourth word, every cycle one clock after BRK 3's (the test word behind the first bus-idle word: at j0 alignment 0 the bus-idle word waits out the fetch started on S and the test word follows it); why the test stands on the fourth word is not known (the V20's INTO tests on its first, 010C); before (WO45, superseded: the test first, the taken jump into BRK 3's first word; 7 of 8 and 0 of 8 not taken): the wstore3 set f5_wu_k_r1 bv, 8 of 8 windows at four leads and both alignments) taken, the V test's word and then BRK 3's routine from its first word: every cycle of the break one clock after BRK 3's counted from the opcode's first word (vector read, PSW push, segment read, the two pushes). The mechanism is the taken conditional jump's row change: the V20's INTO is 010C (CONST 4 -> tmpbL; JMP O -> 010F) then 010F (FARJMP INT), INT3 is 0104 (CONST 3 -> tmpbL; SUSP) then 0105 (FARJMP INT): the same two words, and INTO's path has one taken jump more (a bubble clock each, the V20 ucore's S_ROW_CHG; docs/v35s-mechanisms/v30-opcodes.md INTO / INT3, v30-structure.md section 7); before: the test word jumped into BRK 3's second word, BRK 3's length, one clock short; the book's single BRKV figure (50, BRK 3's) does not separate the paths"
+    open                                    ; OPEN: (R1L) a word with no act (BRK 3's first word)
+    d1=ADDR s1=VEC d2=TC s2=PC              ; the vector's address (4n: 16); the return offset into tmpc (BRK 3's second word)
+    bi                                      ; (R1L) B: the bus-idle third word (BRK 3's)
+    jc=XC:brk_w4                            ; (R1L) the V test on the fourth word (taken: the break to vector 4, BRK 3's body from its fourth word: one word more than BRK 3)
     e                                       ; E (V clear)
 routine brk3 op=CC book="BRK 3" diff=1 why="(r24, work order 20 C: model_m INT3 has no lead, LEAD_CC 0; romcheck 'lead model 1 ROM 3'; 22 corpus rows) no lead; was: OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) INT 3 is `. . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .` (the qprobe int3 runs, 37 / 42; first vector read 12 clocks after the boundary behind the long shift): bus-idle words third and fifth; the vector offset's read, the PSW's push on its datum's word, the segment's read (U), the pushes of PS and PC, Q21's flush tail; (qprobe round 8, Q22) lead 3 (WO47, build/overseer/ramen-design3 DESIGN3.md; at RAMEN 1 every clock as before: the access wait is the F word it replaced, a p0 word and the words under an access run inside the cycle) OPEN at RAMEN 0, word counts read from the pins (BRK 3's body, also BRK imm8's and BRKV's): the PSW's push posted one word later (p1 / p0: 1 word), PS's push one word later (1 word), PC's push two words later (p1, a word under it, p0: 2 words; (round 4) a p1 word still waits for the request slot with RAMEN 0, silicon's third push max(W + 8, L + 5) behind the second); why silicon has the words is not known"
-brk3_0: open                                ; OPEN: (qprobe round 13, Q44) a word with no act; (WO45) BRKV's taken jump enters here
+    open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
 brk_b1: d1=ADDR s1=VEC d2=TC s2=PC          ; the vector's address (4n); the return offset into tmpc (pushed last)
     bi                                      ; (qprobe round 13, Q44) B: the bus-idle third word
-    open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
+brk_w4: open                                ; OPEN: (qprobe round 13, Q44) a word with no act; (R1L) BRKV's taken test enters here
     bi                                      ; (qprobe round 13, Q44) B: the bus-idle fifth word
     open call=w1                            ; OPEN: (qprobe round 13, Q44) two words with no act (the call and the shared delay's 1)
 brk_y: rl=x bi                              ; (qprobe round 13, Q44) Y: the request word (the offset's read posted three words later)

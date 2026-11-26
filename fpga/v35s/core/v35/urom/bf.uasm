@@ -50,14 +50,14 @@
 ; ext_xq / ext_xq2: a full-word field crossing skips it), `PN .`; INS 65 words, `Z D` (the first word written
 ; as a field ending at bit 15), 8 words, `U D`, 17 + 4 m words (m = o + n - 16), `Z G PN .`.
 
-routine ext op=33 page=0f why="OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) EXT reg8,reg8: the imm4 form's routine with the head one word shorter and no immediate (`P . P . C . Y D` ... `N .`; the qprobe ext runs, round 9)"
+routine ext op=33 page=0f why="OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) EXT reg8,reg8: the imm4 form's routine with the head one word shorter and no immediate (`P . P . C . Y D` ... `N .`; the qprobe ext runs, round 9) (WO49, build/overseer/miss339-rows ROWS.md section 3, f5_wy_an / f5_wy_a0 .. a5 and corpus group A, 114 runs) the head's fourth word is a plain bus-idle word (it waits for fetch A and passes on the clock B starts) and the FIFTH word is the commit word (C, on B's ready clock, as ROL4's and SHL r,imm8's): under READY the old commit point fell on a clock with READY still low, so it cannot be the commit; the heads above read `. C` as `B C` (no word count changed)"
     pop=modrm eac=ext_r                 ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
     jmp=ext_r                           ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
 ext_r: open                             ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
     rl=1 bi                                 ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); P: the ModR/M byte released (the third word)
     open                                ; OPEN: (qprobe round 16, Q61) a word with no act (`P . BP . C . Y D`: one word fewer in front of C)
-    bi alt                              ; C: the commit word
-    ra=IX wid=WORD d1=ADDR s1=RA        ; the word's address IX
+    bi                                  ; (WO49, miss339-rows A) B: the fourth head word a plain bus-idle word (was C: the commit word)
+    ra=IX wid=WORD d1=ADDR s1=RA bi alt ; the word's address IX; (WO49, miss339-rows A) C: the commit word, the fifth head word
     rl=x bi                             ; Y: the request word (the read posted three words later)
     open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
     bus=MEMR seg=DSP                    ; post the word's read at IX (a prefix's segment, else DS0)
@@ -96,14 +96,14 @@ ext_t2: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
 ext_n2: open call=w1                     ; OPEN: two words with no act (the pointer's two clocks) (the call and the shared delay's 1)
 ext_e2: e ro                             ; E: pop the next opcode (N; the imm4 forms' P: the width byte, released here)
 
-routine exti op=3B page=0f why="(qprobe round 21, spec 17 B, Q96) EXT r,imm4 is `P . BP . C . . Y DP . B` + (22 + v) words + `N .` (QPr20b e-exti, QPr16a ph-*-exti: the model +18, 0 lost): the imm4 released on the datum word, the second word behind it bus-idle, the length unchanged; OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) EXT reg8,imm4 (the qprobe exti runs, r12b / r13a): the head, the two counted shifts, `PN .`; across a word the next word's read and the offset's rotation"
+routine exti op=3B page=0f why="(qprobe round 21, spec 17 B, Q96) EXT r,imm4 is `P . BP . C . . Y DP . B` + (22 + v) words + `N .` (QPr20b e-exti, QPr16a ph-*-exti: the model +18, 0 lost): the imm4 released on the datum word, the second word behind it bus-idle, the length unchanged; OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) EXT reg8,imm4 (the qprobe exti runs, r12b / r13a): the head, the two counted shifts, `PN .`; across a word the next word's read and the offset's rotation (WO49, build/overseer/miss339-rows ROWS.md section 3, f5_wy_an / f5_wy_a0 .. a5 and corpus group A, 114 runs) the head's fourth word is a plain bus-idle word (it waits for fetch A and passes on the clock B starts) and the FIFTH word is the commit word (C, on B's ready clock, as ROL4's and SHL r,imm8's): under READY the old commit point fell on a clock with READY still low, so it cannot be the commit; the heads above read `. C` as `B C` (no word count changed)"
     pop=modrm eac=exti_r                ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
     jmp=exti_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
 exti_r: open                            ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
     rl=1 bi                                 ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); P: the ModR/M byte released (the third word)
     pop=il                              ; pop the imm4 width byte (released on the E word)
-    bi alt                              ; C: the commit word
-    open                                ; OPEN: a word with no act
+    bi                                  ; (WO49, miss339-rows A) B: the fourth head word a plain bus-idle word (was C: the commit word)
+    bi alt                              ; (WO49, miss339-rows A) C: the commit word, the fifth head word (one word behind the bus-idle word)
     ra=IX wid=WORD d1=ADDR s1=RA        ; the word's address IX
     rl=x bi                             ; Y: the request word (the read posted three words later)
     open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
@@ -141,14 +141,14 @@ ext_t: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
 ext_n: open call=w1                     ; OPEN: two words with no act (the pointer's two clocks) (the call and the shared delay's 1)
 ext_e: e ro                             ; E: N (qprobe round 21, Q96: the width byte released on the datum word)
 
-routine ins op=31 page=0f why="OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) INS reg8,reg8: the imm4 form's routine with the head one word shorter and no immediate (`Z G N .`; the qprobe ins runs, round 9)"
+routine ins op=31 page=0f why="OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) INS reg8,reg8: the imm4 form's routine with the head one word shorter and no immediate (`Z G N .`; the qprobe ins runs, round 9) (WO49, build/overseer/miss339-rows ROWS.md section 3, f5_wy_an / f5_wy_a0 .. a5 and corpus group A, 114 runs) the head's fourth word is a plain bus-idle word (it waits for fetch A and passes on the clock B starts) and the FIFTH word is the commit word (C, on B's ready clock, as ROL4's and SHL r,imm8's): under READY the old commit point fell on a clock with READY still low, so it cannot be the commit; the heads above read `. C` as `B C` (no word count changed)"
     pop=modrm eac=ins_r                 ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
     jmp=ins_r                           ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
 ins_r: open                             ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
     rl=1 bi                                 ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); P: the ModR/M byte released (the third word)
     open                                ; OPEN: (qprobe round 16, Q61) a word with no act (`P . BP . C . Y D`: one word fewer in front of C)
-    bi alt                              ; C: the commit word
-    ra=IY wid=WORD d1=ADDR s1=RA        ; the word's address IY
+    bi                                  ; (WO49, miss339-rows A) B: the fourth head word a plain bus-idle word (was C: the commit word)
+    ra=IY wid=WORD d1=ADDR s1=RA bi alt ; the word's address IY; (WO49, miss339-rows A) C: the commit word, the fifth head word
     rl=x bi                             ; Y: the request word (the read posted three words later)
     open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
     bus=MEMR seg=DS1                    ; post the word's read at DS1:IY (no prefix)
@@ -197,14 +197,14 @@ ins_xs2: open call=w11                   ; OPEN: twelve words with no act (the c
 ins_xo2: d1=OPRW s1=TC                   ; Z's word: the write datum <- the high word
     bus=MEMW seg=DS1 wid=WORD jmp=ins_e2 ; Z: post the high word's write
 
-routine insi op=39 page=0f why="(qprobe round 21, spec 17 B, Q96) INS r,imm4 is `P . BP . C . . Y DP . . B` + (67 + v) words + `Z G N .` (QPr20b e-insi: the model +11, 0 lost): the imm4 released on the datum word, the third word behind it bus-idle; OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) INS reg8,imm4 (the qprobe insi runs, r12b / r13a): the head, the sixteen rotations, `Z G PN .`; across a word the first word written, the next read and written"
+routine insi op=39 page=0f why="(qprobe round 21, spec 17 B, Q96) INS r,imm4 is `P . BP . C . . Y DP . . B` + (67 + v) words + `Z G N .` (QPr20b e-insi: the model +11, 0 lost): the imm4 released on the datum word, the third word behind it bus-idle; OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) INS reg8,imm4 (the qprobe insi runs, r12b / r13a): the head, the sixteen rotations, `Z G PN .`; across a word the first word written, the next read and written (WO49, build/overseer/miss339-rows ROWS.md section 3, f5_wy_an / f5_wy_a0 .. a5 and corpus group A, 114 runs) the head's fourth word is a plain bus-idle word (it waits for fetch A and passes on the clock B starts) and the FIFTH word is the commit word (C, on B's ready clock, as ROL4's and SHL r,imm8's): under READY the old commit point fell on a clock with READY still low, so it cannot be the commit; the heads above read `. C` as `B C` (no word count changed)"
     pop=modrm eac=insi_r                ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
     jmp=insi_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
 insi_r: open                            ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
     rl=1 bi                                 ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); P: the ModR/M byte released (the third word)
     pop=il                              ; pop the imm4 width byte (released on the E word)
-    bi alt                              ; C: the commit word
-    open                                ; OPEN: a word with no act
+    bi                                  ; (WO49, miss339-rows A) B: the fourth head word a plain bus-idle word (was C: the commit word)
+    bi alt                              ; (WO49, miss339-rows A) C: the commit word, the fifth head word (one word behind the bus-idle word)
     ra=IY wid=WORD d1=ADDR s1=RA        ; the word's address IY
     rl=x bi                             ; Y: the request word (the read posted three words later)
     open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)

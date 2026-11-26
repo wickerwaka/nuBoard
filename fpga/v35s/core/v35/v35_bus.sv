@@ -144,6 +144,10 @@ module v35_bus
     input  v35_lvn_t   lv_nx,
     input  v35_sf_t    sf_nx,
     output wire        ph_nx,
+    // (WO49, group C; one bit over the port budget, the user's ruling 2026-11-25) the last byte cycle of the
+    // EU's memory write starts on this clock (a single write's grant, a pair's second half's; off-chip):
+    // the loader's lead count restarts there (silicon, Q127: a store's N on that clock). A ce_b register
+    output reg         wl_b,
 
     // (F1, step B) the on-chip cycle (below): the SFR page's access port (a store's write: the
     // enable at ce_a, the address, width and lane-placed datum; (WO31) in the cycle's first
@@ -373,9 +377,10 @@ module v35_bus
     reg  [19:0] g_addr_b = 20'd0;
     reg  [1:0]  g_width_b = BW_WORD, g_half_b = 2'd0;
     always @(posedge clock) begin
-        if (!reset_n)
+        if (!reset_n) begin
             g_start_b <= 1'b0;       // (the strobes at ce_mid read it before the first ce_b)
-        else if (ce_b) begin
+            wl_b <= 1'b0;
+        end else if (ce_b) begin
             g_start_b <= g_start;
             g_sfr_b <= g_sfr;
             g_ia_b <= g_ia;     // (F3b) the EU's cycle granted is an acknowledge (req_ia on a read)
@@ -388,6 +393,8 @@ module v35_bus
             g_addr_b <= g_addr;
             g_width_b <= g_width;
             g_half_b <= g_half;
+            // (WO49) the grant of the last byte cycle of an off-chip EU memory write (not a pair's first half)
+            wl_b <= g_start && g_kind == K_WRITE && g_half != 2'd1 && !g_sfr;
         end
     end
 
@@ -584,7 +591,7 @@ module v35_bus
             lw_b <= lw_a;
             lo_b <= lo_a;
             few_b <= g_fetch ? (pend && lw) : few;
-            fx_b <= g_fetch ? (lw && (pend || req_done)) : fx;
+            fx_b <= g_fetch ? ((lw && (pend || req_done)) || (fx && sk_b)) : fx;   // trial T3: the fetch that gave way to a boundary keeps the mark
         end
     end
     always @(posedge clock) begin
@@ -675,7 +682,7 @@ module v35_bus
     // whatever the return address's parity, the fifth on the clock the core pops the sled's HALT
     // when the return address is even; the core's pop-clock term cancelled it, the release then
     // started it and the take out of HALT waited 3 clocks for it (f4_tb / f4_tm / f4_tout periods)
-    wire        fstop = hpr;
+    wire        fstop = hpr && !pend;   // trial T5: a fetch pending under an EU cycle when HALT's opcode is popped is still made
     wire        unused_hc = sf_nx.hc;      // (fix40) the pop clock's term, no longer read here
     // (r24, work order 20 A3, Q112, model_m REQ_PRI=5) behind a memory request word Y executed on a
     // fetch's last clock (`ry1`, on that fetch's delivery) no back-to-back fetch starts at all,
@@ -813,7 +820,7 @@ module v35_bus
     // memory write has two clocks or more left (rule C's `fy` for a fetch, read for the EU's
     // write: the request word executes from the write's next-to-last clock). Both modes; with
     // RAMEN 1 no request word executes inside the EU's own write (F waits for the write's end)
-    wire        yw_nx = bz_nx && ck_nx == K_WRITE && r2_nx;
+    wire        yw_nx = bz_nx && (ck_nx == K_WRITE || ck_nx == K_IO_WRITE) && r2_nx;   // trial T4: the EU's own I/O write too
     // (WO48, README "WO48") the release word's wait: a word that releases operand bytes (rl 1 / 2) and is not a
     // bus-idle word (the kind's free code rl=x with flush and no bi: `krl`) waits while the EU's memory write is
     // on the pins and has a clock left after the next (`bz`, read for the EU's write alone); it may execute on

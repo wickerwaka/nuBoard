@@ -157,6 +157,7 @@ module v35_loader
     // exported the count's compares from here (b4_nx, ew_nx, c4_nx, c5_nx, cf_nx: the queue's
     // now), the lead's two facts, the request word (rqx) and HALT's stop (fstop: the bus unit's)
     output v35_sf_t    sf_nx,
+    input  wire        wl_b,            // (WO49) the bus unit's: the last byte cycle of the EU's write granted now
     // (qprobe rule 11) HALT: the word is a halt word (the sequencer's word); HALT released and
     // not yet run (`hp`; sf_nx, the bus unit's line stop), and a ce_b register of it for the EU
     // (a request posted then is granted a clock later)
@@ -709,8 +710,14 @@ module v35_loader
     // flush (through this clock, saturating at 4; 4 from reset), and while it is below 4 the count
     // is held at 0, so it reads 1 on the clock after the fourth byte's delivery clock
     reg  [2:0] dfl = 3'd4;
+    // (WO49, miss339 group C; Q127, work order 21 B2) a store releases the next opcode on the first clock of
+    // its write's LAST byte cycle (a pair's second half; a write granted behind a fetch later than its N):
+    // the bus unit's `wl_b` (that cycle granted now, an off-chip EU memory write) restarts the count as a
+    // release on this clock would, while the count still runs from a release (lc below 4: the lead of 3 not
+    // yet past; at W 1 / 2 the write's own end is the later bound)
     wire [2:0] lc_nx = dfl != 3'd4 ? 3'd0
-                     : ro_b ? ((ew && epop_b) ? 3'd2 : 3'd1) : lc == 3'd4 ? 3'd4 : lc + 3'd1;
+                     : ro_b ? ((ew && epop_b) ? 3'd2 : 3'd1) : (wl_b && lc != 3'd4) ? 3'd1
+                     : lc == 3'd4 ? 3'd4 : lc + 3'd1;
     wire       hp_nx = hrel_b ? 1'b1 : (flush_b || hw_b) ? 1'b0 : hp;
     // ------------------------------------------------------------ the end of the clock (ce_a)
     // the staging load's byte ((work order 29) the twins: translated in secure mode)

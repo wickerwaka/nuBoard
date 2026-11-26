@@ -536,9 +536,16 @@ def c_summary(name, backend):
             print(f"  last records: {[(r[0], hex(r[1]), r[2]) for r in rows[-4:]]}")
 
 
+# (WO49, gate fix H3) programs whose socket capture stops early: silicon's bus stops after clk_pck's
+# fX/2 -> fX/4 change (the Record: a chip malfunction, not built), so its receipt has fewer anchors
+# than the simulation's. The gate compares the anchors silicon reached and names the rest
+SOCKET_STOPS = {"clk_pck": "silicon's bus stops after its fX/2 -> fX/4 change"}
+
+
 def c_gate(name):
     """A socket capture of a C program against the simulation: per anchor, CLKOUT's edges in the
-    window (socket + OFFSET) equal. None when no socket receipt exists."""
+    window (socket + OFFSET) equal. None when no socket receipt exists. For a program of
+    SOCKET_STOPS only the anchors the socket reached are compared."""
     s, c = load(name, "socket"), load(name, "sim")
     if s is None:
         return None, f"{name}: AWAITING A SOCKET CAPTURE (simulated: {'yes' if c else 'no'})"
@@ -556,10 +563,15 @@ def c_gate(name):
         if a != b:
             i = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
             diff.append((k, a[i:i + 3], b[i:i + 3]))
-    line = f"{name}: {'EQUAL' if not diff and len(ws) == len(wc) else 'DIFFER'} ({len(ws)} / {len(wc)} anchors)"
+    short = name in SOCKET_STOPS and len(ws) < len(wc)
+    good = not diff and (len(ws) == len(wc) or short)
+    line = f"{name}: {'EQUAL' if good else 'DIFFER'} ({len(ws)} / {len(wc)} anchors)"
+    if short:
+        line += (f"; compared the {len(ws)} the socket reached ({SOCKET_STOPS[name]}); not compared: "
+                 f"sim anchors {', '.join(str(k) for k in range(len(ws), len(wc)))}")
     for k, a, b in diff[:4]:
         line += f"\n    anchor {k}: socket+{OFFSET} {a} / sim {b}"
-    return not diff and len(ws) == len(wc), line
+    return good, line
 
 
 def c_socket(names, tag):

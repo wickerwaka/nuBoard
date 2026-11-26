@@ -401,16 +401,16 @@ CORE_INSTANCES = {
 # next-value outputs
 # psw_ie_r: allowed by the user 2026-11-21 (eu out 36 -> 37, intc in 14 -> 15, eu -> intc 3 -> 4)
 BUDGET_MODULE = {
-    "bus": {"out": 17, "in": 17},
+    "bus": {"out": 18, "in": 17},     # wl_b (WO49, group C): allowed by the user 2026-11-25
     "queue": {"out": 16, "in": 11},
-    "loader": {"out": 28, "in": 36},
+    "loader": {"out": 28, "in": 37},  # wl_b (WO49, group C): allowed by the user 2026-11-25
     "useq": {"out": 24, "in": 28},    # w_fa (WO47): allowed by the user 2026-11-24
     "eu": {"out": 37, "in": 39},      # psw_ie_r: allowed by the user 2026-11-21; w_fa (WO47) 2026-11-24
     "regram": {"out": 3, "in": 13},
     "intc": {"out": 13, "in": 15},    # psw_ie_r: allowed by the user 2026-11-21
 }
 BUDGET_PAIR = {
-    ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 4, ("bus", "queue"): 4,
+    ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 5, ("bus", "queue"): 4,  # bus -> loader 5: wl_b (WO49) 2026-11-25
     ("bus", "regram"): 5,
     ("eu", "bus"): 9, ("eu", "intc"): 4,  # psw_ie_r: allowed by the user 2026-11-21
     ("eu", "loader"): 2, ("eu", "queue"): 2,

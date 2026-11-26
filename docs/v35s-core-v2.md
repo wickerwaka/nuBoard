@@ -4647,3 +4647,29 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   Ruling: land it declared OPEN (a word kind of its own, the measured condition named), in
   work order 50. Also ruled: work order 50's loss of f5_lc_pb w14 and w30 is accepted
   (the INTP sampler's residual at silicon's sled parity; six windows gained).
+- **Work order 49 landed (2026-11-26): the RAMEN 1 leftovers, the corpus groups with a
+  mechanism, and the gate fixes.** Corpus RTL-exact 30,381 of 30,536 (from 30,197; 184
+  gained, 0 lost): the bit-field head's commit word as its fifth word 114 (F32 F34 F39),
+  the store release bit 26, the request word of PUSH sreg / RET imm16 one word earlier 17,
+  SHL [m],CL's fourth word 15, RET far imm16 12. Built: BRKV as BRK 3's first three words
+  with the V test on the fourth; PREPARE's level byte released one word later; BRKCS and
+  RETRBI with their bus-idle words, three head words on the bank entry (an inference from
+  one distance); RET far imm16 as measured; all four declared OPEN. P1 to P4 of the
+  program-set analysis. One bit bus to loader (`wl_b`, an off-chip write's grant restarts
+  the lead count; budget bus out 18, loader in 37, pair bus-loader 5, user-allowed). The
+  queue's stream-segment register (`fps`): the stream keeps its segment to the next flush.
+  phase.py compares all 12 programs; clk_pck compares the anchors silicon reached. Store
+  sets: nine programs up, none down (f5_wu_k_r1, f5_wu_v1 both, f5_wv_c_r1, f5_wv_d_r1,
+  f5_wv_g_r1 equal). Leftovers probe: a, b, d, e equal, c 90 of 94. onchip_t 2 / 4.
+  Timing at 17 ns +3.060 / +2.945 / +3.110 ns; 9,754 LUT4, 569 ADD, 2,687 FF, 36 RAM_5K;
+  ROM 1,959 words. Gate changes ruled by the user: wtc_ps rewritten for the stream
+  segment (MOV PS, a NOP sled, BR as the flush; sled fetches judged against the old
+  block's wait field, fetches behind the flush against the new one, both counts non-zero;
+  21 judged per case for 14; a core taking the field by the EU's PS fails it). Accepted
+  loss: f5_wy_a2 w0 and w4 (EXT and INS imm4 under READY low two clocks) now one clock
+  early as ROL4 and SHL r,imm8 are in the same windows: with the parked commit word under
+  READY-stretched fetches. Pin records: five runs change with identical rows (the store
+  release bit; 9 of 18 events equal to silicon before, 17 after); 16 gained runs are not
+  one shifted step (12 RET far imm16, 4 RET imm16 chains). Report lines added to the
+  gate with the no-loss rule: the leftovers probe, the corpus-group rows, the interrupt
+  probe, the CLKOUT set, wtc by window (baseline for them: build/overseer/land48x).

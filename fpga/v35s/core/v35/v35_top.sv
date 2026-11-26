@@ -263,6 +263,7 @@ module v35_top
     // the EU); the sequencer's dispatch bit (the loader's)
     v35_wk_t    s_wk_nx;
     wire        b_ph_nx, e_rqv_nx, e_rqm_nx;
+    wire        b_wl_b;                 // (WO49) the bus unit's: the last byte cycle of the EU's write granted now
     v35_lvq_t   q_lv;
     v35_lvn_t   q_lv_nx;
     v35_sf_t    l_sf_nx;
@@ -359,7 +360,7 @@ module v35_top
         .done_data(b_done_data), .done_nx(b_done_nx16), .done_ld(b_done_ld),
         .dlv_fetch_nx, .eu_done_nx(b_done_nx),
         .wk_nx(s_wk_nx), .ex, .eu_rq_nx(e_rqv_nx), .rqm_nx(e_rqm_nx), .lv_q(q_lv), .lv_nx(q_lv_nx),
-        .sf_nx(l_sf_nx), .ph_nx(b_ph_nx),
+        .sf_nx(l_sf_nx), .ph_nx(b_ph_nx), .wl_b(b_wl_b),
         .sfr_wr, .sfr_pend, .sfr_a, .sfr_w, .sfr_d, .sfr_rdgo,
         .oc_we, .oc_wa, .oc_be, .oc_wd,
         .a0(c_a0), .a19(c_a19), .a18_ube(c_a18_ube), .mux_address(c_mux_address),
@@ -407,7 +408,7 @@ module v35_top
         .flush_w_nx(word_nx.flush), .dispm_nx(w_dispm_nx),
         .q_stall_nx(l_qs_nx),
         .ro(word.ro), .rl(word.rl), .ro_nx(word_nx.ro), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx), .rls(l_rls),
-        .sf_nx(l_sf_nx), .w_halt(word.halt), .hp_b(l_hp_b),
+        .sf_nx(l_sf_nx), .wl_b(b_wl_b), .w_halt(word.halt), .hp_b(l_hp_b),
         .ip(ld_ip), .brki(psw_brki), .ins_ip(ld_ins_ip), .tq(q_tq), .psw_md
     );
 
