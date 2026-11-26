@@ -4614,3 +4614,21 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   held request. REP STMW / MOVBKW at an odd destination: the late exit is not the count
   test (CW 1, 2, 3, 8 alike); it is the write pair's second half at 0 waits. Rows named
   for later: R2c, P10b, P11b.
+- **2026-11-26, rulings on the interrupt rows.** The grant wire v35_bus to v35_intc is
+  allowed beside the request wire (these two signals only); a Fable trial of the grant
+  with the "fetch pending" term comes first, an Opus build only when the trial loses
+  nothing exact. INTP0's sampler move is trialled with it. OUT's datum under a running
+  I/O write (CVTBD / CVTDB) is a described difference: no build, no further rows. CLKOUT's
+  stop in STOP is to be built as a count of its own in the clock generator, a named
+  measured constant.
+- **2026-11-26, delivery-clock pop design (build/overseer/dpop-design/DESIGN.md).** The
+  item as worded in ROWS.md is withdrawn: in none of the 22 windows is the popped byte
+  delivered by the fetch that ends on the word; it is long in the queue. What is open is
+  one word, the bus-idle word that pops and releases nothing (the third word of BR far
+  [d16] and CALL far [d16], the only such word in the ROM): it passes on a fetch's last
+  clock in 22 windows and waits in 42, the two sets confounded (odd alignment, low byte,
+  five held, against even, high byte, four held). Every other word kind waits or passes as
+  the core has it (over 30,000 confirmed events). A fitted trial on that one word gains 22
+  windows and 4 corpus runs (group M) with 0 lost; not landed. The E word popping the
+  arriving opcode on its delivery clock is not distinguishable on the pins by any row on
+  file. Proposed rows: dpop.py (f5_wz_n, f5_wz_o; simulated, not captured).
