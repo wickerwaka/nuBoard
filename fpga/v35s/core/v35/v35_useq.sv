@@ -18,7 +18,7 @@
 //   slot  the word posts a request while the EU's one request is still outstanding
 //   (hold: E while an on-chip store was outstanding with RAMEN = 1; (WO31) gone: the store
 //         lands in its cycle's first clock, before the next instruction's words read it)
-//   halt  halted
+//   halt  halted ((WO50) gone: HALT's wait is the routine's two-word loop, `halted` the word's halt bit)
 // (step D) Nothing else: the rule-only stalls (the bus wait, the unit hold, the write-back
 // waits, the take sync, the dispatch law, SUSP's and the decide's fetch wait, the refill wait)
 // are removed with the facts only they read (README "Step D").
@@ -72,7 +72,7 @@
 // ce_b registers; tick B: the next-address mux (eight sources by the word's seq field and the
 // registered ex) into the ROM's read address. The ROM output is a register.
 //
-// Registered state (widths): upc 10, the ROM word 86 (96), retr 10, cnt 9, halted 1; the ce_b
+// Registered state (widths): upc 10, the ROM word 86 (96), retr 10, cnt 9 ((WO50) halted is no register: the word's halt bit), hl_q 1, wk_b 1; the ce_b
 // copies ex_b 1, d1_b 10, (MX1) dc_b 1, dr_b 10 ((qprobe round 17) d2_b removed with DISPM).
 // Quartus 17.1 reads one import in a module header, so the imports sit in $unit scope
 // verilator lint_off IMPORTSTAR
@@ -160,7 +160,7 @@ module v35_useq
     output wire        x_ivec,          // the take's IVEC word executes (the controller's acknowledge)
     output wire        x_fint,          // FINT executes
     output wire        q_susp,          // (MX2) prefetching suspended (the queue's susp: SUSP)
-    output reg         halted
+    output wire        halted
 );
     // (work order 27) the ROM is the 40-bit word L40 (docs/v35s-urom-w40-layout.md; uasm.py's
     // L40 section, v35_l40.svh): one ROM of 2,048 x 40 (v35_l40_rom.hex), read at ce_b with the
@@ -407,7 +407,9 @@ module v35_useq
     assign w_erep = pd.erep;
 
     reg [UADDR_W-1:0] retr = '0;
-    initial halted = 1'b0;
+    // (WO50, the HALT loop) HALT's and STOP's wait is the routine's own two-word loop (urom/core.uasm halt,
+    // xfer_stop.uasm stop): `halted` is the halt bit of the word standing, no stall state
+    assign halted = word.halt;
 
     // ------------------------------------------------------------ tick A: the stalls
     // (MX5c) The stall outcome is a register. Every stall term reads ce_a registers only (the
@@ -450,7 +452,7 @@ module v35_useq
     reg        sp = 1'b0;
     v35_sin_t  si_now;
     always_comb begin
-        si_now.halted = halted;
+        si_now.halted = 1'b0;     // (WO50) no halted stall: the wait is the routine's loop
         si_now.f = word.f;
         si_now.post = pd.post;
         si_now.q_stall = q_stall;
@@ -488,14 +490,24 @@ module v35_useq
     assign x_nbi = ex && word.e && word.seg == SG_NBI;
     assign x_flush = ex && word.flush;
     assign w_stop = word.halt && word.cnt == CN_STOP;
-    assign x_stop = ex_b && w_stop;
+    assign x_stop = ex_b && w_stop && !wk_b;     // (WO50) STOP's mark does not set the stop state again under its own release
     assign x_ivec = ex_b && iv_q;       // (work order 27) word.alu == AL_IVEC, a flop
     assign x_fint = ex_b && fi_q;       // ... AL_FINT
     // (MX2) SUSP suspends prefetching (the queue's request line held low from the clock the word
     // is reached until the FLUSH: `sp` once it has executed)
     // (consol) and halted: no prefetch while the sequencer is halted (the loader's fstop read
     // the halted state before; the queue's line is low for either)
-    assign q_susp = (sp && !word.flush) || su_q || halted;     // (the FLUSH word issues the target's fetch; su_q: word.susp, a flop)
+    // (WO50, the HALT loop) `hl_q`: the last clock's word was a halt word. The queue is suspended from the
+    // loop's second clock, so a fetch pending under an EU cycle at HALT's pop is still made (work order 49's
+    // P4; DESIGN-INT section 1 rule 5), and it stays suspended under the take's words
+    reg        hl_q = 1'b0;
+    always_ff @(posedge clock) begin
+        if (!reset_n)
+            hl_q <= 1'b0;
+        else if (ce_a)
+            hl_q <= word.halt;
+    end
+    assign q_susp = (sp && !word.flush) || su_q || (halted && hl_q);     // (the FLUSH word issues the target's fetch; su_q: word.susp, a flop)
     // (MX2) the suspension stands from the SUSP word's execution to the FLUSH (or an E)
     wire       sp_n = (ex && (word.flush || word.e)) ? 1'b0 : (ex && su_q) ? 1'b1 : sp;
 
@@ -504,6 +516,7 @@ module v35_useq
     reg        dc_b = 1'b0;
     reg        ig_b = 1'b0;                 // (F3) igo, for tick B's DISP target
     reg        sg_b = 1'b0;                 // (F5e) sgo, for tick B's TKI target
+    reg        wk_b = 1'b0;                 // (WO50, the HALT loop) wake, for tick B's condition
     reg        ecr_b = 1'b0, ecc_b = 1'b0;      // (MX3c) the EAC word's mode facts
     reg [UADDR_W-1:0] ech_b = '0;
     reg        sp_b = 1'b0;
@@ -516,6 +529,7 @@ module v35_useq
             d1_b <= dent;
             ig_b <= igo;
             sg_b <= sgo;
+            wk_b <= wake;
             dc_b <= dcall;
             ecr_b <= ec_reg;
             ecc_b <= ec_call;
@@ -555,7 +569,12 @@ module v35_useq
     // bus unit's wait against a back-to-back fetch at four or fewer held (`kbp`)
     wire        wk_bp = word_nx.bi && !word_nx.vk && !word_nx.flush && word_nx.rl != RL_X
                         && (word_nx.rl != RL_0 || word_nx.ro);
-    assign wk_nx.disp = pd_nx.disp || wk_bp;
+    // (WO50; dpop-design) a bus-idle word that pops a queue byte and releases nothing (bi, a pop, rl 0, no ro; no vk,
+    // not a FLUSH or an E word) presents the kind's free code dispatch with bi and alt: the bus unit's `kpp` (B's wait
+    // but on a fetch's last clock with the request line down). OPEN: measured, not explained (v35_bus kpp)
+    wire        wk_pp = word_nx.bi && !word_nx.vk && !word_nx.flush && !word_nx.e && word_nx.rl == RL_0
+                        && !word_nx.ro && word_nx.pop != PP_NONE && word_nx.pop != PP_RD;
+    assign wk_nx.disp = pd_nx.disp || wk_bp || wk_pp;
     // (qprobe round 23, spec 18 A2) the strict word (bi vk rl == RL_2) presents C's code with
     // the flush bit: the kind's free code flush with alt (a FLUSH word never carries vk), so
     // the bus unit tells it from the commit word C, which passes on the third-last clock of the
@@ -582,10 +601,10 @@ module v35_useq
     // the flush bit (below)
     wire        wk_cr = word_nx.bi && word_nx.vk && word_nx.rl == RL_1;
     assign wk_nx.bi = word_nx.bi && !wk_cr;
-    assign wk_nx.alt = (word_nx.vk && (word_nx.bi || word_nx.rl == RL_X)) || wk_bn;     // (qprobe round 10) the wait's second kind (C, V); (r24) wk_bn's code
+    assign wk_nx.alt = (word_nx.vk && (word_nx.bi || word_nx.rl == RL_X)) || wk_bn || wk_pp;     // (qprobe round 10) the wait's second kind (C, V); (r24) wk_bn's code
     v35_sin_t  si_nx;
     always_comb begin
-        si_nx.halted = (halted || (ex_b && word.halt)) && !wake;     // (F3) the release
+        si_nx.halted = 1'b0;     // (WO50) no halted stall: the wait is the routine's loop
         si_nx.f = word_nx.f;
         si_nx.post = pd_nx.post;
         si_nx.q_stall = q_stall_nx;
@@ -607,15 +626,18 @@ module v35_useq
     // ------------------------------------------------------------ tick B: the next address
     logic cond_v;
     always_comb begin
+        // (WO50, the HALT loop) on a halt word two condition codes are read as the loop's two tests: DN the
+        // release (the controller's wake), SGN the take (sgo); no new condition code. The select sits on those
+        // two arms (not in front of the whole case: the flags' arms keep their depth into the ROM's address)
         case (word.cond)
             CD_CNTZ: cond_v = cnt == 9'd0;
-            CD_SGN: cond_v = c_sgn;
+            CD_SGN: cond_v = word.halt ? sg_b : c_sgn;     // (WO50) a halt word: the take
             CD_DTRAP: cond_v = c_dtrap;
             CD_WORD: cond_v = w_b;
             CD_XC: cond_v = c_xc;
             CD_SNZ: cond_v = c_snz;
             CD_SGD: cond_v = c_f1;
-            CD_DN: cond_v = c_dn;
+            CD_DN: cond_v = word.halt ? wk_b : c_dn;       // (WO50) a halt word: the release
             default: cond_v = 1'b0;
         endcase
     end
@@ -666,15 +688,15 @@ module v35_useq
     // at ce_a. The candidate (`nx_a`) is formed from the word and registers; ex selects last.
     logic cond_a;
     always_comb begin
-        case (word.cond)
+        case (word.cond)      // (WO50) a halt word's DN / SGN: the loop's two tests, as tick B's
             CD_CNTZ: cond_a = cnt == 9'd0;
-            CD_SGN: cond_a = c_sgn;
+            CD_SGN: cond_a = word.halt ? sgo : c_sgn;
             CD_DTRAP: cond_a = c_dtrap;
             CD_WORD: cond_a = fmt_w;
             CD_XC: cond_a = c_xc;
             CD_SNZ: cond_a = c_snz;
             CD_SGD: cond_a = c_f1;
-            CD_DN: cond_a = c_dn;
+            CD_DN: cond_a = word.halt ? wake : c_dn;
             default: cond_a = 1'b0;
         endcase
     end
@@ -765,7 +787,6 @@ module v35_useq
             retr <= '0;
             cnt <= 9'd0;
             sp <= 1'b0;
-            halted <= 1'b0;
             lk_o <= 1'b0;
         end else if (ce_a) begin
             upc <= upc_n;
@@ -775,7 +796,6 @@ module v35_useq
                 retr <= inc;
             else if (ex_b && word.seq == SQ_DISP && dc_b)
                 retr <= dr_b;      // (MX1) the dispatch's call of an EA head
-            halted <= (halted || (ex_b && word.halt)) && !wake;     // (F3) the release
             // (WO38) the look held open from an E word that releases the next opcode (not a
             // no-boundary E: nb) to its dispatch word's execution
             if (ex_b && word.e)

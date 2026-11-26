@@ -105,6 +105,7 @@ module v35_top
     wire        ms_hlt;
     wire        int_on;                 // (F3b) the INT request (the level, PMC1 bit 4)
     wire [14:0] pf_set;                 // (F4) the peripherals' IF requests
+    wire [14:0] pf_pre;
     // (F4c) DMA: the request and the take's descriptor (v35_dma's registers), the take, the
     // routine's TC update and last transfer (the EU's), the bus unit's DMA cycle windows
     wire        dm_v, dm_go, dm_ch, dm_in, dm_out, dm_w;
@@ -119,7 +120,7 @@ module v35_top
                  .rd_go(sfr_rdgo), .psw_f,
                  .input_levels, .flag_we, .flag_d, .poll_p14,
                  .ic_b, .intm, .ic_we, .ic_wd, .ic_if, .ispr, .int_on, .ms_b, .ms_clr,
-                 .ce_a, .pins_in, .intak_n, .pins, .pf_set,
+                 .ce_a, .pins_in, .intak_n, .pins, .pf_set, .pf_pre,
                  .dm_take(take_d), .dm_tend, .dm_tlast, .dm_rs, .dm_smp, .dm_last, .dk(b_dk),
                  .dkt(b_dkt), .dm_v,
                  .dm_go, .dm_ch, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd,
@@ -455,7 +456,7 @@ module v35_top
         .wr(sfr_wr), .ic_we, .ic_wd,
         .x_disp, .x_tki, .x_end, .x_nb, .x_nbi, .halted, .w_stop, .x_stop,
         .iack(x_ivec), .fint(x_fint),
-        .int_on, .ie(psw_ie), .ie_r(psw_ie_r), .brk(psw_brk), .pf_set, .ms_b, .ms_end, .dm_go, .dm_v, .dm_ch,
+        .int_on, .ie(psw_ie), .ie_r(psw_ie_r), .brk(psw_brk), .pf_set, .pf_pre, .ms_b, .ms_end, .dm_go, .dm_v, .dm_ch,
         .igo, .sgo, .wake(h_wake), .take_d, .dm_rs, .dm_smp, .tk_dm, .ms_hlt,
         .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_clr, .tk_bs, .tk_lv, .tk_int,
         .ic_if, .ispr, .tk_vec

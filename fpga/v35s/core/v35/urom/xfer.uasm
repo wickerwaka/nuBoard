@@ -364,10 +364,10 @@ routine call_mem_m0 op=FF ml=1 mod=m00 rm=0-5,7 reg=2 why="OPEN: silicon longer 
     e ro                                    ; E: the target's opcode, once delivered
 
 ; ---- BR far [m] (FF /5 memory): V20 FE/FF 01C8-01CB (OPR -> tmpb, INC2, SUSP MEMR, OPR -> CS, FLUSH E)
-routine br_far_mem_d op=FF ml=1 mod=m00 rm=6 reg=5 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) JMP far [d16] is `P . B . Y PP2 D . U D . . F N .` (the qprobe jfm runs, 12 / 12): the direct address popped and released by the routine itself (no EA head: a mod 00 rm 6 cell of FF, already a whole opcode); the offset's read, the segment's (U), Q21's flush tail"
+routine br_far_mem_d op=FF ml=1 mod=m00 rm=6 reg=5 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) JMP far [d16] is `P . B . Y PP2 D . U D . . F N .` (the qprobe jfm runs, 12 / 12): the direct address popped and released by the routine itself (no EA head: a mod 00 rm 6 cell of FF, already a whole opcode); the offset's read, the segment's (U), Q21's flush tail OPEN (WO50): the third word (pop=dh bi, the bus-idle word that pops and releases nothing) executes on a fetch's last clock when the queue's request line is down and waits a clock when it is up (v35_bus `kpp`; measured: f5_wz_n / f5_wz_o 76 windows, 28 pass, 48 hold; f5_wy_m, f5_wx_c); why this word differs from every other bus-idle word is not known"
     open                                    ; OPEN: (qprobe round 13, Q44) a word with no act (the ModR/M byte released by the loader: P)
     pop=dl                                  ; pop the direct address's low byte
-    pop=dh bi                               ; pop its high byte; (qprobe round 13, Q44) B: bus-idle (the third word)
+    pop=dh bi                               ; pop its high byte; (qprobe round 13, Q44) B: bus-idle (the third word); (WO50) OPEN: passes a fetch's last clock with the request line down (v35_bus kpp)
     ea=DISP                                 ; the address register <- the direct address
     rl=x bi                                 ; (qprobe round 13, Q44) Y: the request word (the offset's read posted three words later)
     rl=2                                    ; (qprobe round 13, Q44) P P2: the direct address released
@@ -382,10 +382,10 @@ routine br_far_mem_d op=FF ml=1 mod=m00 rm=6 reg=5 why="OPEN: silicon longer tha
     flush bi                                ; FLUSH: the stream from the offset in the new PS (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
-routine call_far_mem_d op=FF ml=1 mod=m00 rm=6 reg=3 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) CALL far [d16] is `P . B . Y PP2 D . U D . . . Z D . . . Z D . . F N .` (the qprobe cfm runs, 12 / 12): the direct address popped and released by the routine itself (no EA head: a mod 00 rm 6 cell of FF, already a whole opcode); JMP far [d16]'s reads, the pushes of PS and PC (Z four words after each datum), Q21's flush tail"
+routine call_far_mem_d op=FF ml=1 mod=m00 rm=6 reg=3 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) CALL far [d16] is `P . B . Y PP2 D . U D . . . Z D . . . Z D . . F N .` (the qprobe cfm runs, 12 / 12): the direct address popped and released by the routine itself (no EA head: a mod 00 rm 6 cell of FF, already a whole opcode); JMP far [d16]'s reads, the pushes of PS and PC (Z four words after each datum), Q21's flush tail OPEN (WO50): the third word (pop=dh bi, the bus-idle word that pops and releases nothing) executes on a fetch's last clock when the queue's request line is down and waits a clock when it is up (v35_bus `kpp`; measured: f5_wz_n / f5_wz_o 76 windows, 28 pass, 48 hold; f5_wy_m, f5_wx_c); why this word differs from every other bus-idle word is not known"
     open                                    ; OPEN: (qprobe round 13, Q44) a word with no act (the ModR/M byte released by the loader: P)
     pop=dl                                  ; pop the direct address's low byte
-    pop=dh bi                               ; pop its high byte; (qprobe round 13, Q44) B: bus-idle (the third word)
+    pop=dh bi                               ; pop its high byte; (qprobe round 13, Q44) B: bus-idle (the third word); (WO50) OPEN: passes a fetch's last clock with the request line down (v35_bus kpp)
     ea=DISP                                 ; the address register <- the direct address
     rl=x bi                                 ; (qprobe round 13, Q44) Y: the request word (the offset's read posted three words later)
     rl=2                                    ; (qprobe round 13, Q44) P P2: the direct address released

@@ -792,7 +792,16 @@ module v35_bus
     // that clock (lcw as the next clock will have it: the chain fetch delivered then, the count
     // then at most 5 before its releases, the armed write posted and standing)
     wire        lcw_nx = lc_b && ych_b && dlv_fetch_nx && lv.c5 && req_v && req_cyc == RQ_MEMW && !req_ia && !wur_b;
-    wire        kbp = wk_nx.disp && wk_nx.bi;
+    wire        kbp = wk_nx.disp && wk_nx.bi && !wk_nx.alt;     // (WO50) not the pop-no-release word's code (kpp)
+    // (WO50; dpop-design, dpop-rows) the bus-idle word that pops and releases nothing (v35_useq's free code dispatch
+    // with bi and alt: `kpp`; in the ROM the third word of BR far [d16] and CALL far [d16]) waits while a fetch runs,
+    // as B does; on the fetch's last clock it executes when the queue's request line is down (`lv.c4` low: more than
+    // four held, the line low) and waits one clock more when the line is up. Measured: f5_wz_n / f5_wz_o 76 windows,
+    // 28 pass, 48 hold, none against (and f5_wy_m, f5_wx_c). OPEN: why this word differs from every other bus-idle
+    // word (which hold on a fetch's last clock with the line down too) is not known. Registers and the queue's
+    // compares only (tick B's hold)
+    wire        kpp = wk_nx.disp && wk_nx.bi && wk_nx.alt;
+    wire        ppw_nx = bp_nx && !(fb_nx && fl_n && !lv.c4);
     // (qprobe round 21, spec 10 A1 / Q42's second half, model_m C_NOCH=3) the commit word that
     // releases a byte (`P C`, the kind's alt-alone code: v35_useq) waits as C, except on the
     // clock the fetch chained behind the fetch that followed a write starts (`few`: the fetch
@@ -831,7 +840,8 @@ module v35_bus
     wire        rw_nx = krl && bz_nx && ck_nx == K_WRITE;
     assign ph_nx = rw_nx || (wk_nx.disp && !wk_nx.bi && bnd_w) || (wk_nx.bi && !wk_nx.rlx && !wk_nx.alt && (bp_nx || (kbp && (b4w_nx || lcw_nx))))
                    || (kst && (bp_nx || b2s_nx))
-                   || (wk_nx.bi && wk_nx.alt && !wk_nx.rlx && !kst && (cbw_nx || (b2s_nx && !c3n_nx)))
+                   || (wk_nx.bi && wk_nx.alt && !wk_nx.rlx && !kst && !wk_nx.disp && (cbw_nx || (b2s_nx && !c3n_nx)))
+                   || (kpp && ppw_nx)
                    || (cr_k && (cbw_nx || b4w_nx || (b2s_nx && !few_b && !c3n_nx)))
                    || (wk_nx.rlx && !wk_nx.bi && !wk_nx.flush && (wk_nx.alt ? sla_nx : sl_nx))
                    || (wk_nx.rlx && wk_nx.bi && (wk_nx.alt ? (fb_nx && !fl_n) : (fy_nx || yw_nx)));

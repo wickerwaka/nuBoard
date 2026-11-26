@@ -4689,3 +4689,23 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   50. Rulings: the pending term's two clocks are not accepted as a measured stage, the
   grant is held for a mechanism; after work order 50 lands, one trial of the grant with
   the take boundary on top.
+- **Work order 50 landed (2026-11-26): HALT as a microcode loop, the interrupt path's
+  first corrections, the far [d16] word.** HALT is a loop of two words (one tests the
+  release, the other the take; a release is followed by an E whose start takes no
+  maskable request), STOP the same loop with no take test; the halted stall is gone. The
+  IE 0 release count is ACK + RESP - 4 (the count starts at the loop's release-test word).
+  EI's restart of the scan and the INT pin's claim see IE's rise a register late. The
+  scan sees a request as its strobe raises it; the timer's strobe a clock ahead (a net
+  inside v35_sfr). INTP0's sampler half a clock later. The third word of BR far [d16] and
+  CALL far [d16] is a word kind of its own that executes on a fetch's last clock when the
+  queue's request line is down (declared OPEN: measured, why this word is not known). In
+  HALT the take test is the dispatch's own term read ahead (`!nb_r && (nmi_v || g_ih)`)
+  so the loop cannot reach the dispatch with nothing to take; the hang this closes was
+  seen only in the grant trial and a directed sweep (haltsweep.py, 36 programs, in the
+  gate) does not reproduce it on this tree. Open: the take out of HALT with IE 1 (4
+  clocks early or late where no fetch is pending at HALT's pop). Not built: the
+  controller's bus cycle (held for a mechanism), CLKOUT's stop count. Corpus 30,385 of
+  30,536 (+4, F37; 0 lost). Lattice 9 of 27 programs equal (f5_la_w1 .. w9 all 40, h7
+  and h0 24 of 32... see land50), phase 3 of 12, no program's count down; f5_lc_pa / pb,
+  f5_ld_pa .. pd, f5_wx_c, f5_wy_m, f5_wz_n / o equal. Timing at 17 ns +2.985 / +2.873 /
+  +2.703 ns; 9,812 LUT4, 569 ADD, 2,704 FF, 36 RAM_5K; ROM 1,966 words; no budget change.

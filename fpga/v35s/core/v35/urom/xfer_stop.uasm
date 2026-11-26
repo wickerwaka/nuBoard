@@ -3,11 +3,13 @@
 ; the first cycle after it comes 2^19 + 38 clocks after NMI's edge (the oscillator's settling
 ; count), into the NMI handler with IE 1 or 0; an unmasked INTP0 edge during STOP neither
 ; releases it nor is remembered (its IF stays 0). STOP does not set STBC's SBF (a store sets it).
-; The routine is HALT's with the halt word marked STOP's by the counter field's last value
-; (cnt=stop: no counter load): v35_top then releases the halted stall on its own count after
-; NMI instead of the controller's wake, and holds the INTP samplers while stopped. The release
-; pops the instruction after STOP, whose dispatch takes NMI. This file sorts last (after
-; xfer_dma.uasm): no other routine's ROM address moves.
-routine stop op=9E page=0f why="(F4d) STOP: HALT's stall released by NMI alone, 2^19 clocks after it (f4_stop); function only"
-    halt cnt=stop                           ; halted (STOP's: v35_top's release, NMI and the settling count)
+; The routine is HALT's loop with no take test (WO50): a mark word (cnt=stop, its own word: a word
+; with a count field cannot jump) sets the stop state; then B tests the release (the controller's
+; settling count after NMI in place of its wake) every second clock, the other word only jumps
+; back. The release's E pops the instruction after STOP, whose dispatch takes NMI. This file sorts
+; last (after xfer_dma.uasm): no other routine's ROM address moves.
+routine stop op=9E page=0f why="(F4d) STOP: released by NMI alone, 2^19 clocks after it (f4_stop); (WO50) the wait is HALT's two-word loop without the take test; function only"
+    halt cnt=stop                           ; STOP's mark (v35_intc: the stop state set; the release is the settling count's end)
+st_b: halt jnc=DN:st_a                      ; B: the release test
     e                                       ; E: the instruction after STOP (its dispatch takes NMI)
+st_a: halt jmp=st_b                         ; back to B (no take test in STOP)

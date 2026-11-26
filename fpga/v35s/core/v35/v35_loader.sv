@@ -718,7 +718,12 @@ module v35_loader
     wire [2:0] lc_nx = dfl != 3'd4 ? 3'd0
                      : ro_b ? ((ew && epop_b) ? 3'd2 : 3'd1) : (wl_b && lc != 3'd4) ? 3'd1
                      : lc == 3'd4 ? 3'd4 : lc + 3'd1;
-    wire       hp_nx = hrel_b ? 1'b1 : (flush_b || hw_b) ? 1'b0 : hp;
+    // (WO50, the HALT loop) hp is also cleared by the word executed behind a dispatch (`dsp_q`: the last
+    // clock's word was the dispatch): a take out of HALT's loop dispatches with no E, and the stop that the
+    // release's E would have lifted must not hold the take's vector read a clock
+    reg        dsp_q = 1'b0;
+    always_ff @(posedge clock) if (ce_a) dsp_q <= disp_b;
+    wire       hp_nx = hrel_b ? 1'b1 : (flush_b || hw_b || (dsp_q && ex_lb)) ? 1'b0 : hp;
     // ------------------------------------------------------------ the end of the clock (ce_a)
     // the staging load's byte ((work order 29) the twins: translated in secure mode)
     wire [7:0] s_nb = (opop_b || mpop_b) ? sx1_b : sx0_b;
@@ -890,6 +895,8 @@ module v35_loader
                 if (!fmt.seg[2] || !epfx_b)
                     ins_ip <= s_ip;
             end
+            if (hw_b)
+                ins_ip <= ip;     // (WO50, the HALT loop) a take out of HALT's loop has no E: the pushed PC is behind HALT
             if (mpop_b && !e2_b)
                 mp <= sb0_b;
             else if (erep_b || rpop_b)

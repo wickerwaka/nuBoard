@@ -37,10 +37,20 @@ routine pfx op=26,2E,36,3E book="segment override prefix" why="the prefix regist
 routine lock op=F0 book="BUSLOCK" why="the bus lock pin is not built: its one word is the E word"
     pfx e nb                                ; E: pop the next opcode (BUSLOCK: the lock output not built); (F3) nb: a prefix, no boundary after it; (F5b) pfx: a segment prefix before it kept
 
-; ---- HALT (data book: N/A): the sequencer stops; the queue fills and the bus idles. (F3) An
-; unmasked request (an IF with MK 0, or NMI: the controller's registered wake) releases it: the E
-; word then pops the instruction after HALT, whose dispatch takes the interrupt when IE is 1
-; (silicon: the pushed PC is HALT's + 1; with IE 0 execution resumes after HALT, f3_vec)
-routine halt op=F4 hlt=1 why="(F3) HALT's release: the E word after the halted word (f3_vec); function only"
-    halt                                    ; halted: the sequencer stops after this word (the halted stall) until the controller's wake
-    e                                       ; E: the instruction after HALT (its dispatch takes the interrupt)
+; ---- HALT (data book: N/A): (WO50, DESIGN-INT section 1) HALT's wait is a loop of two halt words:
+; B tests the release, A the take, alternating, so each test is made every second clock; B is
+; HALT's own first word. On a halt word the condition field is read as the loop's two tests (no
+; new condition code): DN is the controller's wake, SGN the take as it stands (sgo:
+; NMI's or the maskable offer's). The prefetcher stops at HALT's pop (the queue suspended from the
+; loop's second clock: a fetch pending under an EU cycle is still made) and stays stopped under
+; the take's words. Release (B): the E, the instruction after HALT, whose start takes no maskable
+; request (NBI: it runs, a take follows at its end); with IE 0 the wake is the controller's count
+; from B in a slot (f5_la_w1 .. w9). Take (A, IE 1): the take's dispatch with no E and no fetch
+; (the pushed PC is behind HALT: f3_vec)
+routine halt op=F4 hlt=1 why="(WO50) HALT's wait as silicon's two-word loop (B the release test, A the take test, each every second clock; DESIGN-INT section 1, f5_la_w1 .. w9 exact). OPEN: the take out of HALT with IE 1 (A before B: the dispatch with no E) is built in the trial's phase; its first take is 4 clocks early or late in most f5_la_a / b / e / g frames (the phase differs on silicon with and without a fetch pending at HALT's pop; the selecting signal is not found: rows H1)"
+hl_b: halt jnc=DN:hl_a                      ; B: the release test (on a halt word the condition DN reads the controller's wake); not released: the take test
+    e seg=NBI                               ; the release: E, the instruction after HALT; NBI: its start takes no maskable request (it runs first)
+hl_a: halt jnc=SGN:hl_b                     ; A: the take test (on a halt word SGN reads the take as it stands); none: back to B
+    halt                                    ; a word under the take (the prefetch stop stands)
+    halt                                    ; a word under the take (the prefetch stop stands)
+    halt redisp                             ; the take's dispatch: the interrupt entry with no E and no fetch (no take after all: HALT again)

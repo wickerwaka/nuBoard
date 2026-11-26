@@ -10319,3 +10319,43 @@ Sources: build/overseer/r1-left (items 1 to 5), build/overseer/miss339 (trials 1
 - Gate tools: validation/v35s/phase.py reads f5_ph_e / e1's socket receipts by their delay tag (`socket-d3676`), so
   `gate` with no names compares every program; validation/v35s/clkout.py compares clk_pck's anchors that the socket
   reached (silicon's bus stops after its fX/2 -> fX/4 change); the clk sim receipts regenerated.
+
+## Work order 50: HALT as a microcode loop, EI's restart a register late (P5), the request as its strobe raises it (P8), the far [d16] pop word
+
+Sources: build/overseer/int-design (DESIGN-INT sections 1, 2, 3.1, 3.2), build/overseer/dpop-design and dpop-rows.
+Record: build/wo50/NOTES.md of the work order's worktree. ROM 1,959 -> 1,966 words; the 40-bit format, SEQ and
+condition codes and NT pages unchanged; no port budget row changed. P6 (the controller's bus cycle) is not built.
+
+- **HALT's loop (urom/core.uasm `halt`):** two halt words alternate, B (`hl_b`, HALT's first word: the release test)
+  and A (`hl_a`: the take test), so each test is made every second clock. On a halt word the condition field reads
+  the loop's tests (v35_useq, both condition muxes): DN the controller's wake (`wake`, tick B `wk_b`), SGN
+  the take (`sgo`). Release: `e seg=NBI` (the instruction after HALT runs first; the take follows at its end). Take
+  (IE 1): two halt words under the take, then `halt redisp`: the dispatch with no E and no fetch; the loader sets
+  `ins_ip` from `ip` on the halt word (the pushed PC behind HALT) and clears `hp` on the word behind a dispatch.
+  `halted` is the standing word's halt bit (no stall state); the queue is suspended from the loop's second clock
+  (`hl_q`), so a fetch pending at HALT's pop is still made.
+- **v35_intc in HALT:** `hb` marks A's clock (B is `halted && !hb`); the IE 0 count starts at B in the slot's second
+  clock or the level's first clock behind it and is `ACK + RESP - 4` (the stall's `ACK + RESP - 2` less the loop's
+  two words); R's wake term at `rq_c == 2`; the take test in HALT is NMI's and the offer from `rq_c <= 1` (`g_ih`);
+  `nb_r` / `ne` are loaded on every clock of the loop. **OPEN:** the IE 1 take's phase (the first take 4 clocks early
+  or late in most f5_la_a / b / e / g frames; rows H1).
+- **STOP (urom/xfer_stop.uasm):** the mark word (`halt cnt=stop`), then B and a jump word (no take test);
+  `x_stop` is not raised again under the release (`!wk_b`).
+- **P5:** EI's restart of the scan a register behind IE's rise (`rs_e`), and INT's claim sees the rise through the
+  same register (`eu_q` in `r_set_i`; banks f3_int).
+- **P8:** the scan reads `ic_if | pf_set | pf_pre`: a request in the clock its strobe raises the flag, and the
+  timers' count-outs as they are made (v35_timer `tfp`, v35_sfr `pf_pre`).
+- **The far [d16] pop word (BR far [d16], CALL far [d16], the third word `pop=dh bi`):** v35_useq presents a bus-idle
+  word that pops and releases nothing on the kind's free code dispatch + bi + alt; v35_bus `kpp` waits as B but
+  executes on a fetch's last clock when the request line is down (`lv.c4` low). **OPEN:** measured (76 windows: 28
+  pass, 48 hold), not explained: every other bus-idle word holds there.
+- **HALT's take test agrees with the dispatch (item 8):** in HALT the loop's take test `sgo` is
+  `!nb_r && (nmi_v || g_ih)`: the dispatch's own term `igo` read ahead through the same registers (in HALT no
+  instruction runs, so `nb_r`, `ie_r`, `mi_arm` and the request's hold stand still from A to `halt redisp`; NMI's
+  `ne` and the offer's `ie_e` follow `nmi_v` and the line's end a clock behind). Without `!nb_r` A could say yes
+  where `halt redisp` takes nothing and waits for a fetch the stopped prefetcher never makes (int-design2
+  DESIGN-INT2 5.1). The directed sweep validation/v35s/haltsweep.py (simulation only) puts a stored TMIC0 IF, an
+  INTP0 edge and a DMA request at every half clock around HALT's pop, IE 1 and IE 0; every program must end.
+- **INTP's sampler half a clock later (item 9):** INTP0-2 are sampled at ce_b (`lvh`), the edge formed at the end
+  of that clock (`!dv`) and the flag's count INTP_DLY - 1 behind it: silicon samples 8 to 12 ticks of 32 behind
+  the clock boundary (introws section 2); the flag lands where it did. NMI's sampler is unchanged.

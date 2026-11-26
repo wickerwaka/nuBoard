@@ -82,6 +82,7 @@ module v35_sfr (
     input  wire        intak_n,
     output reg  [31:0] pins,
     output wire [14:0] pf_set,
+    output wire [14:0] pf_pre,          // (WO50, P8) the timers' count-outs as they are made (pf_set's TMIC bits a clock ahead)
     // (F4c) DMA (v35_dma, below): the take and the routine's TC update (v35_intc / the EU), the
     // request and the take's descriptor (registers), the bus unit's DMA cycle on the pins (`dk`:
     // DMAAK's window, `dkt`: TC's, inside it)
@@ -335,7 +336,7 @@ module v35_sfr (
     wire [2:0]  tf;
     wire        tbf;
     v35_timer timer (.clock, .reset_n, .ce_a, .we(p_we), .w_off(wo_b), .w_word(ww_b), .w_lo(data[7:0]),
-                     .w_hi(data[15:8]), .tm0, .md0, .tm1, .md1, .tmc0, .tmc1, .tout, .tf);
+                     .w_hi(data[15:8]), .tm0, .md0, .tm1, .md1, .tmc0, .tmc1, .tout, .tf, .tfp);
     v35_tbc tbc (.clock, .reset_n, .ce_a, .tb(prc[3:2]), .tbf);
     // (F4b) the serial channels (channel 0 with the I/O interface mode): SCM / SCC / BRG in the
     // storage; the stores of SCM and TxB, RxB's reads; RxD0/1, /CTS0/1 the input levels 9-12
@@ -383,6 +384,10 @@ module v35_sfr (
     // the IF bits raised: SEIC0 SRIC0 STIC0 (3-5), SEIC1 SRIC1 STIC1 (6-8), TMIC0-2 (9-11), (F4c)
     // DIC0-1 (12-13), TBIC (14)
     assign pf_set = {tbf, dic, tf, st1, sr1, se1, st0, sr0, se0, 3'd0};
+    // (WO50, P8) the timers' count-outs in the clock they are made (v35_timer's `tfp`: the terms its `tf`
+    // strobe is loaded from), in pf_set's TMIC0-2 places; the other sources have none
+    wire [2:0]  tfp;
+    assign pf_pre = {1'b0, 2'b00, tfp, 9'd0};
 
     // the ports (f4_port): a bit in input mode (PM 1) reads its pin, in output mode its latch;
     // P10-P13 are inputs (PM1 bits 3:0 fixed 1), P13 the /INTAK output's level while PMC1 bit 3
@@ -633,7 +638,7 @@ module v35_intc (
     input  wire        x_nb,            // an E word executes marking its end no boundary (nb: a
                                         //   prefix, EI, DI, ...)
     input  wire        x_nbi,           // ... dropping the arms (seg=NBI: POP PSW, RETI, FINT)
-    input  wire        halted,          // the sequencer's HALT stall (its register)
+    input  wire        halted,          // a halt word stands ((WO50) HALT's / STOP's loop: the word's halt bit)
     input  wire        w_stop,          // (F4d) the word is STOP's halt word (a level)
     input  wire        x_stop,          // ... and it executes (tick B)
     input  wire        iack,            // an IVEC word executes (ce_a strobe; (WO43) the entry's second: the acknowledge)
@@ -646,6 +651,7 @@ module v35_intc (
                                         // restart by IE's rise (`ie_q`, `ie_up`)
     input  wire        brk,             // (F3) PSW.BRK (the EU's register): the single step
     input  wire [14:0] pf_set,          // (F4) the peripherals' requests (ce_a strobes: IF <- 1)
+    input  wire [14:0] pf_pre,          // (WO50, P8) the strobes a clock ahead (the timer's count-outs)
     // (F4b) macro service: the sources' macro-service control registers (v35_sfr's storage, in
     // this module's order; 0 where a source has none), the service's end (the EU's MSDC strobe)
     input  wire [8*15-1:0] ms_b,
@@ -717,7 +723,10 @@ module v35_intc (
             assign ms[gi] = ic_b[8*gi + 5];
         end
     endgenerate
-    wire [14:0] rq = ic_if & ~mk & ~ms;
+    // (WO50, P8) the scan sees a request in the clock its strobe raises the flag (`pf_set`), not a register
+    // later, and the timer's count-out as it is being made (`pf_pre`, a clock ahead of its strobe): f5_la_a's
+    // take window against the count-out (29.5 .. 44.5 half clocks), periph f4_tout's first period
+    wire [14:0] rq = (ic_if | pf_set | pf_pre) & ~mk & ~ms;
     // (F4b) the sources with a macro-service register: EXIC0-2, SRIC0 STIC0, SRIC1 STIC1, TMIC0-2
     // (not the serial errors, DMA, TB: the data book's table 6)
     localparam logic [14:0] MS_CAP = 15'b000_1111_1011_0111;
@@ -758,8 +767,17 @@ module v35_intc (
     reg        nmi_h = 1'b1;
     wire       nmi_e = es[0] ? ((nmi_h && !lv[0]) || (lvn[0] && !nmi_h))
                              : ((!nmi_h && lv[0]) || (!lvn[0] && nmi_h));
-    wire [3:0] edge_c = {((es[3:1] & lvn[3:1] & ~lv[3:1]) | (~es[3:1] & ~lvn[3:1] & lv[3:1]))
-                         & {3{!frz && dv}}, nmi_e};
+    // (WO50, item 9: the INTP sampler half a clock later) INTP0-2 are sampled at ce_b, the middle of the CPU
+    // clock behind the divided clock's point (`lvh`), not at its start: silicon's sampling instant is 8 to 12
+    // ticks of 32 behind the clock boundary (build/overseer introws section 2; f5_lc_pa / pb, f5_ld_pa .. pd,
+    // f5_la_p, f5_ph_e / e1). The edge is formed at the end of that clock (the divided clock's other phase,
+    // `!dv`), and the flag's count behind it (`idl`) is INTP_DLY - 1 because the edge is now formed a clock
+    // later after the sample: the flag lands where it did, the way from the pin to the flag half a clock
+    // shorter (DESIGN-INT2 section 4). NMI's sampler is untouched
+    reg  [2:0] lvh = 3'b111;
+    always_ff @(posedge clock) if (ce_b) lvh <= lvn[3:1];
+    wire [3:0] edge_c = {((es[3:1] & lvh & ~lv[3:1]) | (~es[3:1] & ~lvh & lv[3:1]))
+                         & {3{!frz && !dv}}, nmi_e};
     always_ff @(posedge clock) begin
         if (!reset_n)
             nmi_h <= lvn[0];
@@ -821,7 +839,7 @@ module v35_intc (
         end else if (ce_a) begin
             nd <= edge_c[0] ? NMI_DLY : (nd != 4'd0 ? nd - 4'd1 : 4'd0);
             for (int k = 0; k < 3; k++)
-                idl[k] <= edge_c[k + 1] ? INTP_DLY : (idl[k] != 4'd0 ? idl[k] - 4'd1 : 4'd0);
+                idl[k] <= edge_c[k + 1] ? INTP_DLY - 4'd1 : (idl[k] != 4'd0 ? idl[k] - 4'd1 : 4'd0);     // (WO50, item 9) - 1: the edge formed a clock later (lvh)
         end
     end
     reg  [2:0] tk_k = 3'd0;             // the last take: {NMI, the offer, the step}
@@ -886,7 +904,7 @@ module v35_intc (
             ms_dir <= 1'b0;
             ak_1 <= 1'b0;
         end else if (ce_a) begin
-            lv <= (frz || !dv) ? {lv[3:1], lvn[0]} : lvn;
+            lv <= (frz || dv) ? {lv[3:1], lvn[0]} : {lvh, lvn[0]};
             if (take_n || take_i || take_s || take_m || take_d)
                 ak_1 <= 1'b0;
             else if (iack)
@@ -1046,6 +1064,10 @@ module v35_intc (
     // would (`hw_c`, one count: ACK and RESP as R's from a slot) and releases one stage before
     // the offer would reach the sample
     reg  [3:0] hw_c = 4'd0;
+    // (WO50, the HALT loop) the loop alternates two halt words, B (the release test, HALT's own first word) and
+    // A (the take test): `hb` is high on A's clock (the halt word that stood last clock was B), so B is
+    // `halted && !hb`
+    reg        hb = 1'b0;
     // (WO35) INT's two samples: R is set by INT seen high on two consecutive clocks (f5_pb_w_i:
     // a pulse two clocks wide is taken, one clock wide is not), the samples taken at ce_b from
     // v35_sfr's pin register (the pin as it stood at the clock's start: an edge half a clock
@@ -1067,7 +1089,14 @@ module v35_intc (
     reg        ie_dq = 1'b0;
     reg        rs_k = 1'b0;
     wire       d_up = ie && !ie_dq;
-    wire       rs_ie = ie_up && (d_up ? (!sl_1 && sl != 2'd1) : rs_k);
+    // (WO50, P5) EI's restart of the scan is a register behind IE's rise (`rs_e`), as POP PSW's and RETI's
+    // are behind their datum's (`rs_k`): f5_lc_pb (DI ; EI) has its sampler threshold at silicon's sled
+    // parity with it. And INT's claim sees EI's rise through the same register (`eu_q`, in r_set_i): with
+    // the restart a clock later INTP0's naming is a clock later, and INT must not claim R ahead of it
+    // (banks f3_int: PR 0 before INT)
+    reg        rs_e = 1'b0;
+    reg        eu_q = 1'b0;
+    wire       rs_ie = (ie_up && !d_up && rs_k) || rs_e;
     // (WO43) and the acknowledge of a controller request or NMI (passage11: not BRK's entry, not
     // INT's; NMI's with nothing in service too)
     wire       rs_ak = ak_l && (tk_k[1] || tk_k[2]);
@@ -1076,6 +1105,8 @@ module v35_intc (
         if (!reset_n) begin
             ie_dq <= 1'b0;
             rs_k <= 1'b0;
+            rs_e <= 1'b0;
+            eu_q <= 1'b0;
             ie_q <= 1'b0;
             int_q <= 1'b0;
             int_q2 <= 1'b0;
@@ -1084,6 +1115,8 @@ module v35_intc (
                 ie_q <= ie_r;
                 ie_dq <= ie;
                 rs_k <= d_up && !ie_r && !sl_1 && sl != 2'd1;
+                rs_e <= ie_up && d_up && !sl_1 && sl != 2'd1;
+                eu_q <= ie_up && d_up;
             end
             if (ce_b) begin
                 int_q <= int_on;
@@ -1184,7 +1217,8 @@ module v35_intc (
     // INT's edge wins). With both standing when IE rises, level 0 first (f3_int: PR 0 goes
     // before INT; the order is not measured otherwise): INT waits out the rise's clock while a
     // level-0 request stands, and the level-0 slot (the restart's first clock) claims R
-    wire  r_set_i = int_2 && ie && !(ie_up && lq[0]);
+    // (WO50, P5) INT sees EI's rise as the scan does, a register behind it (`eu_q`)
+    wire  r_set_i = int_2 && ie && !(ie_up && d_up) && !(((ie_up && !d_up) || eu_q) && lq[0]);
     wire  sl_set = sl_raise && !rs_sc;    // (WO40) a restart in the slot's clock: no claim
     assign ACK_N = sl_set ? ACK : 4'd0;
     always_ff @(posedge clock) begin
@@ -1194,6 +1228,7 @@ module v35_intc (
             ir_int <= 1'b0;
             rq_c <= 4'd0;
             hw_c <= 4'd0;
+            hb <= 1'b0;
             nmi_v <= 1'b0;
             i_wake <= 1'b0;
             ms_v <= 1'b0;
@@ -1255,8 +1290,14 @@ module v35_intc (
             // out undisturbed (a later slot's second clock does not reload it: with two levels
             // holding requests their slots come 10 clocks apart, less than the count, and a
             // reload would hold the HALT for ever: lattice.py w2 / w4 / w9)
-            if (sl == 2'd1 && halted && !ie && hw_c == 4'd0)
-                hw_c <= ACK + RESP - 4'd2;
+            // (WO50, the HALT loop) the count starts where the loop's release test B stands in the slot's
+            // second clock or the level's first clock behind it (B is tested every second clock, so one of the
+            // two finds it), and it is ACK + RESP - 4: the old stall's ACK + RESP - 2 less the loop's two words
+            // (the count starts at B's clock, two words later than the halted stall's start, and the E still
+            // follows the count's start by the same line: f5_la_w1 .. w9)
+            hb <= halted && !hb;
+            if ((sl == 2'd1 || sl == 2'd2) && halted && !hb && !ie && hw_c == 4'd0)
+                hw_c <= ACK + RESP - 4'd4;
             else if (hw_c != 4'd0)
                 hw_c <= hw_c - 4'd1;
             ms_v <= kw.v && kw.ms && {1'b0, kw.lvl} < isp_l;
@@ -1266,8 +1307,10 @@ module v35_intc (
             // the line one stage before the offer reaches the sample (WO33's place: the E word
             // after HALT executes in the clock the offer arrives and the dispatch takes it as a
             // running boundary's would); with IE 0 a slot's release (`hw_c`) one stage before
-            // an offer would arrive, the request left pending, the round going on
-            i_wake <= nmi_p || ir_v || (int_on && !ie) || (ir_h && rq_c == 4'd1) || hw_c == 4'd1;
+            // an offer would arrive, the request left pending, the round going on. (WO50, the HALT
+            // loop) R's term at rq_c 2, a clock ahead of the line's end: the loop's B reads the wake
+            // registered (wake, then the sequencer's tick-B copy), the stall read it a clock later
+            i_wake <= nmi_p || ir_v || (int_on && !ie) || (ir_h && rq_c == 4'd2) || hw_c == 4'd1;
         end
     end
 
@@ -1352,7 +1395,23 @@ module v35_intc (
     // on with CW as it stands. A single-step DMA take there disarms the request as at a
     // dispatch (one element between transfers: f5_sdma st_movw), a burst does not (the
     // transfers back to back after the first element: bu_movw)
-    assign sgo = g_n || g_m || g_d || g_it;
+    // (WO50, the HALT loop) in HALT the loop's take test A reads `sgo`: NMI's and the maskable offer's, the
+    // offer from rq_c 1 (a clock ahead of the line's end, `g_ih`), so that with IE 1 A sees the offer before
+    // B sees the release ("the release becomes a take": the take's dispatch with no E, no fetch).
+    // OPEN (DESIGN-INT 2.4): the loop's A / B phase against the offer is not settled: the first take is 4
+    // clocks early or late in most f5_la_a / b / e / g frames (silicon's phase differs with and without a
+    // fetch pending at HALT's pop; the selecting signal is not found: rows H1)
+    // (WO50, item 8) The take test in HALT is the dispatch's own term (`igo`) seen ahead through the same
+    // registers, so that A's yes is always the yes of `halt redisp` three clocks later: `halt redisp` with no
+    // take would wait for a fetch the stopped prefetcher never makes (the core stands there for ever:
+    // build/overseer/int-design2 DESIGN-INT2 5.1). igo is !nb_r && (g_nd || g_m || g_d || g_i || g_s); in HALT
+    // no instruction runs, so nb_r, ie_r, mi_arm and the request's hold (`ir_h`) stand still from A to the
+    // dispatch, NMI's `ne` follows `nmi_v` a clock behind, and g_i's ie_e follows the line's end (ir_v, rq_c
+    // 0) a clock behind: A reads !nb_r with NMI's nmi_v and the offer at rq_c <= 1, so each of its terms
+    // implies the matching term of igo at the dispatch. (The other choice, `halt redisp` falling back to B
+    // when nothing is taken, needs a new sequencer target for a halt word's dispatch.)
+    wire g_ih = ir_h && rq_c <= 4'd1 && ie_r && mi_arm;
+    assign sgo = halted ? (!nb_r && (g_n || g_ih)) : (g_n || g_it || g_m || g_d);
     assign take_d = (x_disp && igo && g_d) || (x_tki && g_d);
     assign take_n = (x_disp && igo && !g_d && g_nd_f) || (x_tki && !g_d && g_n);
     assign take_m = (x_disp && igo && !g_d && !g_nd_f && g_m) || (x_tki && !g_d && !g_n && g_m);
@@ -1389,13 +1448,14 @@ module v35_intc (
             else if (take_n || take_m || take_i || take_s)
                 tk_dm <= 1'b0;
             // (WO38) the look (x_end) may come before the E word (an early `ro`) or stand open
-            // over the held dispatch: an E word marking no boundary sets it whenever it executes
-            if (x_end || x_nb)
+            // over the held dispatch: an E word marking no boundary sets it whenever it executes;
+            // (WO50) and on every clock of HALT's loop, so the release E's NBI reaches the controller
+            if (x_end || x_nb || halted)
                 nb_r <= x_nb || rs_hlt;
             // (qprobe round 13) NMI as the E word sees it; cleared by its take
             if (take_n)
                 ne <= 1'b0;
-            else if (x_end)
+            else if (x_end || halted)     // (WO50) as nb_r: in HALT's loop too
                 ne <= nmi_v;
             // (qprobe round 14-16) the maskable offer / INT and its order against NMI, as the E
             // word (or the HALT stall) sees them; cleared by their take
@@ -1535,7 +1595,8 @@ module v35_timer (
     output reg  [7:0]  tmc0,
     output reg  [7:0]  tmc1,
     output wire        tout,
-    output reg  [2:0]  tf               // TMIC0-2's request (a ce_a strobe)
+    output reg  [2:0]  tf,              // TMIC0-2's request (a ce_a strobe)
+    output wire [2:0]  tfp              // (WO50, P8) the count-out being made in this clock (tf's terms)
 );
     localparam logic [7:0] O_TM0 = 8'h80, O_MD0 = 8'h82, O_TM1 = 8'h88, O_MD1 = 8'h8A,
                            O_TMC0 = 8'h90, O_TMC1 = 8'h91;
@@ -1568,6 +1629,10 @@ module v35_timer (
     wire       cm = tmc0[4] ? e128 : e12;
     wire       c1 = tmc1[6] ? e128 : e6;
     reg        s0 = 1'b0, sm = 1'b0, s1 = 1'b0;    // a start not yet taken by its clock's edge
+    wire       co0 = tmc0[7] && c0 && !s0 && (os ? tm0 == 16'd1 || tm0 == 16'd0 : tm0 == 16'd0);
+    wire       com = os && tmc0[5] && cm && !sm && (md0 == 16'd1 || md0 == 16'd0);
+    wire       co1 = tmc1[7] && c1 && !s1 && tm1 == 16'd0;
+    assign tfp = {co1, co1 || com, co0};
     reg        q = 1'b1;
     assign tout = tmc0[3] ? q ^ tmc0[2] : !tmc0[2];
     // a store's byte at its offset ((WO31) a word is two byte stores, low offset first)
