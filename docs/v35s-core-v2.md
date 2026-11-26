@@ -4721,3 +4721,23 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   prefetcher stopped. On the landed tree a fetch is always still made behind HALT's pop,
   which is why the sweep does not reach it. The take test read ahead stays (harmless);
   the loop side is being trialled with the grant.
+- **2026-11-26, the grant trial on the landed tree (build/overseer/int-design3); rulings.**
+  The controller's bus cycle still cannot be built. (1) With the grant, periph f4_tm's
+  write stream is lost (558 writes for silicon's 563): the takes in series tm01's sled
+  come 2 and then 4 bytes late and the eleventh falls off the sled's end; silicon has it.
+  (2) The f4_dma hang is cured on the grant's side by one flop in the bus unit (the fetch
+  whose slot the cycle takes stays owed; HALT's stop does not cancel it). (3) Nothing else
+  is lost by grant + owed fetch: every gate line, the 89 store lines, the corpus and the
+  haltsweep the same; windowed sets 6,384 to 6,575 equal of 7,733, 0 lost. (4) No
+  mechanism for the pending term: the rows fit only a bare "two clocks behind the release
+  that leaves five held", and that fails the NOP train (f5_lc_sn). The reading that would
+  be a mechanism (silicon's pops run ahead of the core's releases; the line is silicon's
+  count) cannot be expressed in the core: the loader takes bytes on the releases' own
+  clocks. (5) The loop's empty-queue dispatch: two forms tried, neither releases
+  `halt redisp`; no working diff. On the landed tree the state is reachable in principle
+  only through HLDRQ held across HALT's pop (not constructed; no silicon row). (6) P7 not
+  trialled. Rulings: capture the socket rows that separate the readings of the pending
+  term (immediate forms of 2 to 4 bytes, the same behind prefixes, NOP and INC trains at
+  4, 5, 6 held, the ask swept under a long instruction); for the empty-queue HALT a socket
+  row first (HLDRQ across HALT's pop, with H1 / H2); P7 waits for the pending term. The
+  grant stays held.
