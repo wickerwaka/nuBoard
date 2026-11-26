@@ -4673,3 +4673,19 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   one shifted step (12 RET far imm16, 4 RET imm16 chains). Report lines added to the
   gate with the no-loss rule: the leftovers probe, the corpus-group rows, the interrupt
   probe, the CLKOUT set, wtc by window (baseline for them: build/overseer/land48x).
+- **2026-11-26, controller-cycle grant and sampler trial (build/overseer/int-design2/
+  DESIGN-INT2.md).** The grant with the two ruled wires: the "fetch pending" term rides
+  in the queue's level struct (room for a word seen a clock later, or a byte released
+  leaving five or fewer held, for the two clocks behind it); the fetch side is then exact
+  in f5_ld_* 200 of 200, f5_lc_sj 48 of 48, phase 200 of 200, f5_lc_k* 98 of 100
+  (f5_lc_sn's NOP train misses 18). Not buildable as trialled: dma f4_dma hangs through a
+  hole in the HALT loop (the loop's take test says yes, the dispatch's own term says no
+  three clocks later, and the no-take path waits for a fetch the halted prefetcher never
+  makes; reachable without the grant by a request named about nine clocks in front of
+  HALT's pop: work order 50 must close it), and f4_tm's write stream changes. The take
+  boundary by level re-read with fetches right: neither the count nor the grant, the
+  take's sample at a fetch-starved boundary. INTP0's sampler half a clock later (three
+  lines in v35_intc): nothing lost on the full list, 39 windows gained; into work order
+  50. Rulings: the pending term's two clocks are not accepted as a measured stage, the
+  grant is held for a mechanism; after work order 50 lands, one trial of the grant with
+  the take boundary on top.
