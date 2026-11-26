@@ -1,0 +1,280 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 2,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 3,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 4,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 5,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 6,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 7,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 8,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 9,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 10,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 11,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 12,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 13,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 14,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 15,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": 16,
+   "delay": 2539,
+   "hold": 0,
+   "levels": {
+    "HLDRQ": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 86,
+   "hold": 96,
+   "levels": {
+    "INTP0": 0,
+    "HLDRQ": 1
+   }
+  }
+ ],
+ "pins": [
+  "P15",
+  "P26"
+ ]
+}

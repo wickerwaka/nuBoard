@@ -4759,3 +4759,27 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   edges in for silicon's 25: a refresh cycle is in silicon's window; out of scope. Corpus
   30,385 of 30,536, 0 runs differ; every other report line the same. Timing at 17 ns
   +2.966 / +3.368 / +2.868 ns; 9,803 LUT4, 569 ADD, 2,716 FF, 36 RAM_5K; no budget change.
+- **2026-11-26, socket rows: the pending term and HALT (build/overseer/int-rows2,
+  validation/v35s/introws2.py; 39 programs, 844 windows, two sessions equal).** (1) The
+  pending term is neither reading: silicon holds the controller's cycle for a run of 1, 2
+  or 3 clocks that always ends on the fetch's start (3 for MOV r16,imm16, 81 /0 iw and a
+  NOP train from seven held; 2 for 83 /0 ib, FF /0 and a train behind five held; 1 for an
+  INC train, a prefixed ModR/M form and an instruction straight behind a ROL). "Five
+  held" as a level does not hold the cycle; the priority level does not enter. For the
+  operand forms from a full queue the run starts the clock after the routine's dispatch.
+  Inferred: the cycle is held on the prefetcher's want, which leads the fetch's start by
+  1 to 3 clocks; the core's line rises on the fetch's own clock. No mechanism yet. The
+  displaced fetch follows at T + 2, T + 3 or T + 4, on the core's next release clock.
+  (2) Silicon does not stop the prefetcher in HALT: behind a flush it makes four fetches
+  inside HALT with no request present, and a fetch displaced by HLDRQ is made after the
+  hold (the first 1.5 clocks behind /HLDAK's rise). The empty-queue HALT does not exist
+  on silicon. The landed core makes two fetches where silicon makes four, makes none
+  behind a hold until a request comes, and stands still for good in 8 of 108 HLDRQ
+  windows (the hold granted right behind HALT's own fetch): a function fault of the
+  landed tree. /HLDAK rises 2 clocks behind HLDRQ's fall on the core, 3 on silicon.
+  (3) H1: with the queue full at HALT's pop the take's kind (straight out of HALT, or
+  after the next instruction) alternates with every clock of the pop and the core is
+  inverted in all 32 windows; behind the timer's start store the core takes straight out
+  where silicon runs the NOP first (24 of 24). In the HLDRQ rows the kind follows the
+  last fetch made inside HALT. (4) H2: the INT pin is taken on a two-clock lattice that
+  moves with the program; the core's /INTAK is 2.5 to 6 clocks early.
