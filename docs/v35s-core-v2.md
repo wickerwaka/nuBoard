@@ -4632,3 +4632,7 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   windows and 4 corpus runs (group M) with 0 lost; not landed. The E word popping the
   arriving opcode on its delivery clock is not distinguishable on the pins by any row on
   file. Proposed rows: dpop.py (f5_wz_n, f5_wz_o; simulated, not captured).
+- **2026-11-26, rulings on the pop design.** The far [d16] word: capture the proposed
+  rows first (dpop.py), nothing lands until they are read. The E word's pop of the
+  arriving opcode on its delivery clock is closed: the compensation stays, recorded as not
+  distinguishable on the pins.
