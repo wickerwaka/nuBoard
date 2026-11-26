@@ -4595,3 +4595,22 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   accepted as ACK + RESP - 4, the two fewer being the loop's two words. The HALT loop is
   built now with the IE 1 take recorded open. OUT ; CVT's datum rule waits for rows R2a.
   Next socket session: P6a, P6b, R2a, P10a, R3a, P11a (H1 and H2 not chosen).
+- **2026-11-26, interrupt rows socket session (build/overseer/int-rows/ROWS-INT.md;
+  introws.py, 15 trace programs with 660 windows and 26 CLKOUT runs, two captures equal).**
+  The controller's bus cycle: two clocks at 0, 1 and 2 memory waits (no wait field, no
+  READY); on a free bus with the queue full it runs at once and needs no fetch (DIVU
+  frames 28 of 28 equal on the landed core); it never breaks a running cycle and goes
+  ahead of the next fetch; while a fetch is pending and not started (a flush's gap, the
+  clocks behind a pop) it waits and takes that fetch's first two clocks, the count
+  standing. As a mechanism: a third requester at the bus arbiter, a request from the
+  controller and a grant back. Open: which signal is "pending" behind a pop (silicon has
+  it one or two clocks ahead of the core's request line); an RTL trial, not rows. OUT's
+  datum: MOV AL,imm, ADD AL,imm, PUSH AW and MOV [m],imm behind an OUT at 1 and 2 waits
+  do not reach the pins; of 14 followers only CVTBD and CVTDB do, so the immediate-pop
+  rule is refuted; what fits is the multiply / divide loop's operand register being the
+  write datum register. INTP0's sampler: 8 to 12 ticks of 32 behind the clock boundary,
+  half a clock later than the core's, at both parities. CLKOUT in STOP: the stop delay is
+  a count of its own in CPU clocks, the same over four alignments at /2 and /8 and with a
+  held request. REP STMW / MOVBKW at an odd destination: the late exit is not the count
+  test (CW 1, 2, 3, 8 alike); it is the write pair's second half at 0 waits. Rows named
+  for later: R2c, P10b, P11b.
