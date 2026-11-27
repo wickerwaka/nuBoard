@@ -4880,3 +4880,40 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   Side findings, both faults of the landed core: DS1: HALT pushes HALT + 1 on silicon,
   the core pushes the prefix's address in 8 of 16 windows and re-enters HALT; OUT 80h,AW
   in front of HALT starts its I/O write a clock earlier on silicon.
+- **2026-11-27, the combined trial of the grant and the take side (build/overseer/
+  int-design5: DESIGN-INT5.md, delta.diff, n-variant.diff, lossfree.diff, trial-x1 / x2,
+  scores/). Nothing built from it; the work was wrapped up on the user's word after this
+  round.** Three trees against land52. `k` (the grant with sources a and b, the
+  displaced-fetch rule, R, H2, the entry time, PUSH imm's pops a word earlier; N unbuilt)
+  loses periph f4_tb, f4_tm's write stream (563/568) and intr f3_vec. `kn2` (`k` plus N
+  as one flop) loses ONLY intr f3_vec and is otherwise land52 or better on every line:
+  periph 3/1 to 4/0 (f4_tm EQUAL for the first time, 563/563 and the periods), lattice
+  424 to 487, phase 191 to 301, introws 475 to 515, intprobe 133 to 145, introws2 1,187
+  to 2,463 of 3,324 with no set down, passage n_halt 8 to 24 and i_halt 0 to 20; corpus
+  30,385 with 0 rows different; Efinity seed 1 +1.466 ns (landed +2.677; the worst paths
+  run through `cgnt` into the fetch's own stop; the registered form of DESIGN-INT4 3.2 is
+  not built); test_v35_struct fails on the two ruled wires only. f3_vec's loss is test 8
+  (HALT behind POP PSW ; POP AW at two waits): silicon takes INTP0 by the take test,
+  `kn2` releases first; R's stand of the first word turns it. The line is EQUAL on the
+  landed core only under the gate's mask of pushed PCs one apart, and its receipt has
+  writes only, so the clock cannot be read. `s3` (lossfree.diff: INT's tap, the entry
+  time, NMI by the take test, PUSH's pops; v35_sfr.sv and urom/bus.uasm only, no port)
+  loses NOTHING in any landing-gate set by the trial's own runs: introws2 1,187 to 1,635,
+  passage n_halt 24/24 and i_halt 20/20, corpus unchanged, seed 1 +3.250 ns. It has not
+  been through the overseer's gate and is not landed. Mechanisms: R is structure (rows 4
+  (a) 288 to 1,056 of 1,248); N fits as "the E word in front released nothing" (the ROM's
+  own e / ro bits), a description that is not explained and is kept out of delta.diff; H2
+  as "INT's line has NMI's length (ACK + RESP), a look reads it ahead of ACK, HALT's take
+  test reads its end" (176 of 176 in the six H2 sets); the entry time as "no take out of
+  HALT before RESP clocks behind the pop"; the "EU one clock early" class falls out of
+  the grant. Not achieved: source a starts one clock late (wants a microword mark on the
+  word in front of the first pop); the chained-fetch rule as built is worse (x1, not in
+  the candidate); P7 (x2: a taken request cancels the release of the next opcode, 18 sets
+  227 to 365 of 400) needs a new wire intc to loader, OUTSIDE the port budget, and loses
+  f4_tm's stream again; the 12 held PUSH imm windows stay wrong (displaced fetch at
+  T + 4, no rule; the pop move gains nothing and changes no corpus row). Open questions
+  for the user when work resumes: (1) N as a measured rule; (2) f3_vec test 8: capture
+  the frame with clocks, or rule a line equal only under a mask out of the no-loss list;
+  (3) land `s3` alone or hold it for the whole candidate; (4) the intc to loader wire for
+  P7; (5) the microword mark for source a; (6) +1.466 ns or the registered grant first;
+  (7) the PUSH windows.
