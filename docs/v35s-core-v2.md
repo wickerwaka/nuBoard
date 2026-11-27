@@ -4834,3 +4834,25 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   five; every one whose first word takes nothing is granted there. Nothing differs
   earlier: the first clock on which silicon differs by the following instruction is the
   clock after its opcode leaves the queue, the clock in front of its dispatch.
+- **2026-11-27, the take side's design trial (build/overseer/take-design); rulings.**
+  Rulings on rows 3: a decode bit of the staged opcode stays look-ahead (not acceptable)
+  though silicon's difference appears only after the opcode has left the queue; PUSH imm's
+  pop placement is looked at with the next fetch-side trial. The trial (H1, H2; P7 not
+  reached): no variant is free of loss, none can be built. H1 part 1, well supported:
+  HALT's two loop words alternate only on clocks the bus unit is idle (a word stands on a
+  fetch's three clocks and while the bus is held; the loop resumes, it does not restart):
+  on paper against silicon's bus records bor, ber, boi, bol 64 of 64, bei 13 of 16; in
+  RTL f5_pa_n_halt 8 to 17 of 24, corpus and every other line unchanged, but lattice
+  f5_la_c loses its one equal window and 50 already-unequal windows have the take 3
+  clocks off. Part 2: NMI is taken by the take test alone. Part 3, NOT explained: one odd
+  clock at HALT's entry (silicon's loop a clock later when HALT follows a NOP,
+  MOV AW,AW, a flush target or the timer's start store; not behind ROL BP,n or POP DW);
+  four candidate signals each refuted by a class of rows; what fits is a table by the
+  instruction in front, which is a per-opcode case and not built. With a stand-in for
+  that clock every take of h1s, h1r, f5_la_a, f5_la_b is on silicon's clock, and with the
+  grant (sources a and b only) f4_tm's gate is EQUAL (11 takes in tm01): f4_tm comes
+  right only with the grant and the take side together; the stand-in loses f5_la_h7 / h0
+  and f3_vec. H2 (h2a, h2b 32 of 32 in a trial) fits as "INT's release behind its take,
+  and INT's request raised in HALT five clocks longer than the core's line": a
+  description. The grant with sources a and b alone: 548 of 576 A windows on the fetches
+  (572 with c and d; 457 landed).
