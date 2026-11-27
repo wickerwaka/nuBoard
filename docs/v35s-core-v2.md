@@ -4816,3 +4816,21 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   (c) is NOT acceptable (look-ahead); (d) is left out; the take side (H1, P7) is trialled
   next with the grant held until f4_tm's stream is kept; more socket rows (PUSH imm8 /
   imm16, a 0F form; the fetch chained behind the displaced fetch).
+- **2026-11-27, socket rows 3 (build/overseer/int-rows3; introws2 sets f5_lf_*, 37
+  programs, 864 windows, two sessions equal).** (A) Operand bytes: relative to the
+  release every row agrees: the controller's cycle is held for the n + 1 clocks in front
+  of the clock the n immediate bytes are released (imm8: T-2, T-1; imm16: T-3 .. T-1).
+  Against the core's words, "from the routine's first word" is wrong for TEST r,imm (F6 /
+  F7 /0); "the word in front of the first pop" is wrong by one clock for PUSH imm8 /
+  imm16 only, whose routines pop on the release word where every other immediate form
+  pops on the n words in front (inferred: the ROM's pop placement in push_i8 / push_i16).
+  (B) The fetch chained behind the displaced fetch starts on the chain clock (D'+3)
+  unless that is the last clock in front of a release; then it starts on the release
+  (D'+4): 43 of 43 windows with a second fetch. In the PUSH trains the EU's first write
+  behind the flush is one clock EARLIER with the controller's cycle in the fill's last
+  slot (the cycle is two clocks where the fetch is three). (C) Behind the same lead the
+  run follows the following instruction's first take, not its length: every instruction
+  whose first word takes a byte is held from the clock after the release that leaves
+  five; every one whose first word takes nothing is granted there. Nothing differs
+  earlier: the first clock on which silicon differs by the following instruction is the
+  clock after its opcode leaves the queue, the clock in front of its dispatch.

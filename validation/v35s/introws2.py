@@ -49,6 +49,21 @@ B. HALT.
                `sim1` runs each window as a program of its own (f5_le_bV.s) with a bounded length: a core
                that stands in HALT for ever loses only that window.
 
+C. (2026-11-27; read in build/overseer/int-rows3/ROWS-INT3.md) Rows for DESIGN-INT4's questions, in A's frames
+(every window with its twin; `sim`, `gate`, `read` as the A sets):
+
+    f5_lf_yK[1]  f5_ld_y's frame with X = K, [1] behind DS1:      f5_lf_nK / pK   X behind ROL BP,n at level 7 (the
+                 landed core holds six / seven bytes under the ROL)
+                 K: p8 PUSH imm8, p6 PUSH imm16, tb TEST r8,imm8 (F6 /0), tw TEST r16,imm16 (F7 /0), xi EXT r8,imm4
+                 (0F 3B): the operand bytes popped on the routine's fourth word or later (asked from when);
+                 m8 MOV r8,imm8, lf MOV AH,PSW, cb CVTBW, mr MOV r,r, pw PUSH r: the instruction behind the prefix
+                 / the ROL taking 0, 1, 2 bytes on its first word, at lengths 1, 2, 3
+    f5_lf_tV     f5_le_ti's frame (the fetch chained behind a displaced one) with the EU's work at the target varied:
+                 tc INC CL train, tm MOV AW,AW train, tw MOV CW,imm16 train, ta / tb DS1: PS: ADD BW,imm16 / imm8
+                 train, tp DS1: INC AW train, tr ROL BP,8 then INC, to / tj an odd target with a NOP / INC train;
+                 tq / t8 / tk PUSH imm16 / PUSH imm8 / PUSH AW trains (the writes show the EU's clock in the asked
+                 window); tt / tu TEST r16,imm16 / r8,imm8 trains (the immediate released late in the routine)
+
 Receipts: validation/v35s/receipts/f5-<name>-<backend>.json.
 """
 
@@ -73,6 +88,15 @@ RD = ("rawb", (0x8A, 0x27), "MOV AH, [BW]   ; block 1: its wait is the odd clock
 INCA = ("rawb", (0x40,), "INC AW   ; the other byte parity")
 
 
+# a train's instruction by kind (rows 3: all but inc / nop)
+TRAINS = {"inc": ([0x40], "INC AW"), "nop": ([0x90], "NOP"), "icl": ([0xFE, 0xC1], "INC CL"),
+          "mrr": ([0x8B, 0xC0], "MOV AW, AW"), "mcw": ([0xB9, 0x00, 0x00], "MOV CW, 0000h"),
+          "a62": ([0x26, 0x2E, 0x81, 0xC3, 0x00, 0x00], "DS1: PS: ADD BW, 0000h"),
+          "a82": ([0x26, 0x2E, 0x83, 0xC3, 0x00], "DS1: PS: ADD BW, 0"), "pfx": ([0x26, 0x40], "DS1: INC AW"),
+          "pi6": ([0x68, 0x34, 0x12], "PUSH 1234h"), "pi8": ([0x6A, 0x12], "PUSH 12h"), "paw": ([0x50], "PUSH AW"),
+          "tiw": ([0xF7, 0xC1, 0x00, 0x00], "TEST CW, 0000h"), "tib": ([0xF6, 0xC1, 0x00], "TEST CL, 0")}
+
+
 def emit(a, ops, meta):
     """lattice.emit_ops with: train kind n (INC AW / NOP, meta first), brh kind (a short jump to HALT at an odd
     address / to NOP ; HALT at an even one; then NOP NOP)."""
@@ -80,7 +104,13 @@ def emit(a, ops, meta):
         if op[0] == "train":
             meta.setdefault("first", len(a.b))
             for _ in range(op[2]):
-                a.op(*{"inc": ([0x40], "INC AW"), "nop": ([0x90], "NOP")}[op[1]])
+                a.op(*TRAINS[op[1]])
+        elif op[0] == "bro":
+            # (rows 3) a short jump to an odd address: the target fetch brings one byte
+            skip = 0 if (len(a.b) + 2) & 1 else 1
+            a.op([0xEB, skip], f"BR short $+{2 + skip}   ; the queue flushed, the target odd")
+            if skip:
+                a.op([0x90], "NOP   ; skipped")
         elif op[0] == "brh":
             at = len(a.b) + 2
             if op[1] == "o":
@@ -126,7 +156,7 @@ WS = ((0x36, 0xA3, 0xA0, 0x0D), "MOV SS:[0DA0h], AW   ; a prefixed store")
 LEADS = {"n": ((0, 0), (2, 0)), "p": ((1, 0), (0, 1)), "q": ((3, 0), (2, 1))}
 
 
-def set_r(series, train, leads, x=None, nr=(1, 2, 3, 4, 5, 6)):
+def set_r(series, train, leads, x=None, nr=(1, 2, 3, 4, 5, 6), pre=()):
     """mark 1, the store, a lead, ROL BP,n (the long instruction: the queue full or one short), X, the train."""
     out = []
     for j, (na, nb) in enumerate(leads):
@@ -134,29 +164,30 @@ def set_r(series, train, leads, x=None, nr=(1, 2, 3, 4, 5, 6)):
             for tw, if_ in ((0, IF1), (1, IF0)):
                 ops = (HEAD + (("st", 0xFF9C, if_),) + (PAD1,) * na + (PAD3,) * nb + (("rol", n),)
                        + ((("rawb",) + x,) if x else ()) + (("train", train, 40),))
-                out.append(xwindow(series, len(out), ops, ic={}, lv=LV, rn=n, wt=j, tw=tw, ld=f"{na}i{nb}n"))
+                out.append(xwindow(series, len(out), ops, pre=pre, ic={}, lv=LV, rn=n, wt=j, tw=tw, ld=f"{na}i{nb}n"))
     return out
 
 
-def set_y(series, x, lvs=(1, 2, 3, 4, 5)):
+def set_y(series, x, lvs=(1, 2, 3, 4, 5), pre=()):
     """f5_ld_y's frame: mark 1, the store at level lv, the read in block 1 (its wait the odd clock), X, an INC train."""
     out = []
     for lv in lvs:
         for w in (0, 1):
             for tw, if_ in ((0, 0x80 | lv), (1, lv)):
                 ops = HEAD + (("st", 0xFF9C, if_), RD, ("rawb",) + x, ("train", "inc", 40))
-                out.append(xwindow(series, len(out), ops, odd=w, ic={}, lv=lv, rn=lv, wt=w, tw=tw))
+                out.append(xwindow(series, len(out), ops, pre=pre, odd=w, ic={}, lv=lv, rn=lv, wt=w, tw=tw))
     return out
 
 
 PADS = ((0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (0, 2), (2, 1), (1, 2), (0, 3), (2, 2), (1, 3), (0, 4))
 
 
-def set_t(series, train):
+def set_t(series, train, br=(BR0,), head=()):
+    """head (rows 3): instructions at the jump's target in front of the train; br: the jump."""
     out = []
     for na, nb in PADS:
         for tw, if_ in ((0, IF1), (1, IF0)):
-            ops = HEAD + (("st", 0xFF9C, if_),) + (PAD1,) * na + (PAD3,) * nb + (BR0, ("train", train, 40))
+            ops = HEAD + (("st", 0xFF9C, if_),) + (PAD1,) * na + (PAD3,) * nb + br + head + (("train", train, 40),)
             out.append(xwindow(series, len(out), ops, ic={}, lv=LV, rn=na, wt=nb, tw=tw))
     return out
 
@@ -286,8 +317,73 @@ def b_programs():
     return {p.name: p for p in progs}
 
 
+# ------------------------------------------------------------------ rows 3 (ROWS-INT3)
+# X by key: the bytes, the text. The core's routine in words from its dispatch S (urom/*.uasm), as the sets need it:
+#   p8  `S . . P`: the immediate's pop and release on the fourth word        p6  the pops on the fourth and fifth
+#   tb  the ModR/M byte released on S by the loader, the pop on the fifth word, E the sixth; tw: the fifth and sixth
+#   xi  the page byte released on the E in front, the second byte on S (the routine's first word pops the ModR/M
+#       byte), the ModR/M byte released on the third word, the imm4 popped on the fourth and released on the
+#       read's datum word
+#   m8  `S . P E`: the pop on the third word (the word behind the first is in front of the first pop)
+#   lf  E on S (the next opcode taken on the first word)     cb  the next opcode released on S, E a word later
+#   mr  the ModR/M byte and the next opcode on S             pw  nothing taken until E, six words behind S
+X3 = {"p8": ((0x6A, 0x12), "PUSH 12h   ; 6A ib"), "p6": ((0x68, 0x34, 0x12), "PUSH 1234h   ; 68 iw"),
+      "tb": ((0xF6, 0xC1, 0x00), "TEST CL, 0   ; F6 /0 ib"), "tw": ((0xF7, 0xC1, 0x00, 0x00), "TEST CW, 0000h   ; F7 /0 iw"),
+      "xi": ((0x0F, 0x3B, 0xC1, 0x07), "EXT CL, 7   ; 0F 3B /0 ib"),
+      "m8": ((0xB1, 0x00), "MOV CL, 0   ; B1 ib"),
+      "lf": ((0x9F,), "MOV AH, PSW"), "cb": ((0x98,), "CVTBW"), "mr": ((0x8B, 0xC0), "MOV AW, AW   ; 8B /r"),
+      "pw": ((0x50,), "PUSH AW")}
+# EXT's word is read at DS0:IX: block 1's page; the NOP keeps the window's code on the other sets' byte parity (the
+# queue holds one byte fewer under the read / the ROL on the other parity)
+PRE3 = {"xi": (("rawb", (0xBE, 0x00, 0xF8), "MOV IX, 0F800h   ; EXT's word: block 1"),
+               ("rawb", (0x90,), "NOP   ; parity"))}
+# A (the operand bytes: asked from when) and C (the instruction behind a prefix / a ROL: what the run follows):
+# (key, prefixes, levels) in f5_ld_y's frame; (lead, key) behind ROL BP,n at level 7
+Y3 = (("p8", 0, (1, 2, 3, 4, 5, 6, 7)), ("p8", 1, (1, 2, 3, 4, 5)), ("p6", 0, (1, 2, 3, 4, 5)),
+      ("tb", 0, (1, 2, 3, 4, 5)), ("tb", 1, (1, 2, 3, 4, 5, 6, 7)), ("tw", 0, (1, 2, 3, 4, 5, 6)),
+      ("xi", 0, (1, 2, 3, 4, 5)), ("m8", 0, (1, 2, 3, 4, 5)), ("m8", 1, (1, 2, 3, 4, 5)),
+      ("lf", 1, (1, 2, 3, 4, 5)), ("cb", 1, (1, 2, 3, 4, 5)), ("mr", 1, (1, 2, 3, 4, 5)),
+      ("pw", 1, (1, 2, 3, 4, 5, 6, 7)))
+R3 = (("n", "p8"), ("n", "p6"), ("p", "tb"), ("p", "tw"), ("p", "xi"), ("n", "m8"), ("n", "lf"), ("n", "cb"),
+      ("n", "mr"), ("n", "pw"))
+# B (the fetch chained behind a displaced one): f5_le_ti's frame (the ask on the first .. fourth fetch behind the
+# flush by the pad) with the EU's work at the target varied
+T3 = {"tc": (dict(train="icl"), "INC CL train (two bytes, four clocks: a ModR/M form)"),
+      "tm": (dict(train="mrr"), "MOV AW,AW train (two bytes, two clocks: the EU waits for bytes)"),
+      "tw": (dict(train="mcw"), "MOV CW,imm16 train (three bytes released at once)"),
+      "ta": (dict(train="a62"), "DS1: PS: ADD BW,imm16 train (f5_le_ya62's instruction)"),
+      "tb": (dict(train="a82"), "DS1: PS: ADD BW,imm8 train"),
+      "tp": (dict(train="pfx"), "DS1: INC AW train"),
+      "tr": (dict(train="inc", head=(("rol", 8),)), "ROL BP,8 at the target (no release while the queue fills), INC train"),
+      "to": (dict(train="nop", br=(("bro",),)), "the target odd (its fetch brings one byte), NOP train"),
+      "tj": (dict(train="inc", br=(("bro",),)), "the target odd, INC train"),
+      # the EU's clock on the pins: every instruction of the train ends in a write
+      "tq": (dict(train="pi6"), "PUSH imm16 train (the write shows the EU's clock)"),
+      "t8": (dict(train="pi8"), "PUSH imm8 train"), "tk": (dict(train="paw"), "PUSH AW train"),
+      # the immediate released six / five words behind the dispatch: the chain clock is in front of the pops
+      "tt": (dict(train="tiw"), "TEST r16,imm16 (F7 /0) train"), "tu": (dict(train="tib"), "TEST r8,imm8 (F6 /0) train")}
+
+
+def c_programs():
+    progs = []
+    for key, np, lvs in Y3:
+        bs, text = X3[key]
+        pt = "".join({0x26: "DS1: ", 0x2E: "PS: "}[q] for q in PFX[np])
+        progs.append(la.prog(f"f5_lf_y{key}{np or ''}",
+                             set_y(f"y{key}{np}", (PFX[np] + bs, pt + text), lvs=lvs, pre=PRE3.get(key, ())),
+                             f"the controller's cycle against the fetch {pt}{text.split('   ;')[0]} wants, by level"))
+    for par, key in R3:
+        bs, text = X3[key]
+        progs.append(la.prog(f"f5_lf_{par}{key}", set_r(par + key, "inc", LEADS[par], x=(bs, text), pre=PRE3.get(key, ())),
+                             f"behind ROL BP,n (leads {par}) at level {LV}: {text.split('   ;')[0]}"))
+    for name, (kw, note) in T3.items():
+        progs.append(la.prog("f5_lf_" + name, set_t(name, **kw),
+                             f"a stored IF at level {LV}, a pad, a short jump: {note}"))
+    return {q.name: q for q in progs}
+
+
 def programs():
-    return {**a_programs(), **b_programs()}
+    return {**a_programs(), **b_programs(), **c_programs()}
 
 
 def one(name):
