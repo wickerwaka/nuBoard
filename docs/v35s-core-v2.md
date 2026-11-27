@@ -4856,3 +4856,27 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   and INT's request raised in HALT five clocks longer than the core's line": a
   description. The grant with sources a and b alone: 548 of 576 A windows on the fetches
   (572 with c and d; 457 landed).
+- **2026-11-27, socket rows 4: HALT's entry, NMI twins, the INT pin (build/overseer/
+  int-rows4; introws2 sets f5_lg_* and f5_le_bnr / bmr, 56 programs, 1,616 windows, two
+  sessions equal).** Rulings before them: the HALT bus wait is held until the entry's
+  clock is found; then one combined trial of the grant and the take side as one
+  candidate. (a) The entry: (R) a word of HALT's loop stands on the clock BEHIND a busy
+  clock of the bus unit, the first word included, so the loop starts a clock late when
+  the clock in front of HALT's pop was busy (an on-chip store counts as busy); (N)
+  behind XCH AW,r16 (NOP among them) and CVTBW the first word stands one clock as though
+  that clock had been busy (not additive with R). On paper against silicon's bus records
+  and the core's pop: 1,264 of 1,264 NMI takes behind 78 forms (480 with the unregistered
+  wait; 1,104 with R alone). Nothing else enters: length, operand kind, routine length,
+  a first-word take, a prefix, EI / DI, a flush target, an SFR store. In the core N's
+  members are the two routines that release the next opcode on their first word with E
+  later, the same two that are odd on the fetch side; the fact behind N is not known.
+  (b) NMI without HLDRQ has the same odd clock: R (with N behind NOP) fits the NMI sets
+  64 of 64 and the INTP0 kinds of the HLDRQ sets 80 of 80. (c) Inside HALT the INT pin
+  is taken on NMI's clocks (vector read 4 clocks behind NMI's for the same edge); in
+  running code INT is seen 5 clocks sooner than NMI: the five clocks are a stretch NMI
+  always travels and INT skips in running code only (inferred). A request standing at the
+  entry is taken at a fixed time behind the pop (NMI's vector read at pop + 28; INT's
+  /INTAK at pop + 17). No effect from a masked pending INTP0 or the round's position.
+  Side findings, both faults of the landed core: DS1: HALT pushes HALT + 1 on silicon,
+  the core pushes the prefix's address in 8 of 16 windows and re-enters HALT; OUT 80h,AW
+  in front of HALT starts its I/O write a clock earlier on silicon.

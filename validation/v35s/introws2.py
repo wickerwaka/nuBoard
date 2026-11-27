@@ -64,6 +64,30 @@ C. (2026-11-27; read in build/overseer/int-rows3/ROWS-INT3.md) Rows for DESIGN-I
                  tq / t8 / tk PUSH imm16 / PUSH imm8 / PUSH AW trains (the writes show the EU's clock in the asked
                  window); tt / tu TEST r16,imm16 / r8,imm8 trains (the immediate released late in the routine)
 
+D. (2026-11-27; read in build/overseer/int-rows4/ROWS-INT4.md) Rows for DESIGN-TAKE's questions 3 .. 5:
+
+    f5_lg_aNN    HALT's entry: the event, mark 1, a sled of s = 0 .. 3 clocks (a block-1 read, ROL BP,8 + s//2), the
+                 instruction X in front of HALT (G_X: two X a program, 16 windows each), HALT ; NOP, mark 2. The request
+                 is the NMI pin, its edge G_BASE + j clocks (j 0 .. 3) behind the landed core's pop of HALT at s = 0
+                 (G_POP: the pilot's table), so the take's clock reads the loop's phase. f5_lg_a18: HALT ; HALT with
+                 two edges; a19: DS1: HALT; a20 .. a25: more register instructions; a26 .. a31: a short jump to an
+                 even / odd target and 1 .. 6 INC AW in front of HALT; a32 .. a39: sixteen X again with one wait on
+                 every cycle of block 0. `read`: per window the take against the core's
+                 pop, the edge and the last bus cycle (needs `sim NAME --trace` for the pop).
+    f5_le_bnr / bmr   the twins of f5_le_bon / ben without HLDRQ (the same events, sleds and NMI clocks)
+    f5_lg_h2n / h2o   H2: f5_le_h2a / h2b with a NOP train in HALT's place (the same sleds and edges)
+    f5_lg_h2m / h2q   f5_le_h2a / h2b with INTP0's request flag set and masked (EXIC0 C7h)
+    f5_lg_h2e / h2f   INT standing with IE 0; a sled of s = 0 .. 15 clocks, EI, HALT (h2e; a second entry is an NMI
+                 170 clocks later: a window that took INT in front of HALT does not stand for good) / EI, a NOP train
+    f5_lg_h2x / h2y   f5_le_h2a's frame with the INT edge a clock a window from 20 clocks in front of the core's pop of
+                 HALT to 11 behind it (h2x: -20 .. -5, h2y: -4 .. 11), each window with the later NMI
+    f5_lg_h2z    the same 32 edges with a NOP train in HALT's place
+    f5_lg_h2p    a request control store (TMIC1: the scan's restart), a sled of x = 0 .. 15 clocks, then f5_le_h2a's
+                 window with the edge at two clocks: the controller's round at every position against HALT
+    f5_lg_h2g    INT standing with IE 0; f5_le_h2a's sled, EI, ROL BP,n (n 1 .. 16), HALT (with the later NMI): is the
+                 first take out of HALT counted from HALT's entry or from IE's rise
+    f5_lg_n2x / n2y / n2z   f5_lg_h2x / h2y / h2z with the NMI pin as the request (the later NMI a second pulse)
+
 Receipts: validation/v35s/receipts/f5-<name>-<backend>.json.
 """
 
@@ -252,7 +276,9 @@ HB_LATE, HB_IN = 40 * CLK, 3 * CLK
 # target, the request's pin, its place, HLDRQ's length in clocks (0: no HLDRQ)
 BV = {"oi": ("o", "INTP0", "late", 6), "on": ("o", "NMI", "late", 6), "ei": ("e", "INTP0", "late", 6),
       "en": ("e", "NMI", "late", 6), "or": ("o", "INTP0", "late", 0), "er": ("e", "INTP0", "late", 0),
-      "oj": ("o", "INTP0", "in", 6), "om": ("o", "NMI", "in", 6), "ol": ("o", "INTP0", "late", 20)}
+      "oj": ("o", "INTP0", "in", 6), "om": ("o", "NMI", "in", 6), "ol": ("o", "INTP0", "late", 20),
+      # (rows 4) the twins of on / en without HLDRQ
+      "nr": ("o", "NMI", "late", 0), "mr": ("e", "NMI", "late", 0)}
 
 # om: at s = 12 the NMI is taken in front of HALT (its fetch starts on the edge's clock): HALT then stands for good.
 # Captured once with 16 sleds (2026-11-26: window 12's pushed PC is HALT's own address); the program has 12
@@ -382,8 +408,283 @@ def c_programs():
     return {q.name: q for q in progs}
 
 
+# ------------------------------------------------------------------ rows 4 (ROWS-INT4)
+# (a) HALT's entry. X by key: (operations in front of the sled, X, operations behind HALT ; NOP, text, window keywords)
+G_WR = ("rawb", (0x36, 0xA3, 0xA0, 0x0D), "MOV SS:[0DA0h], AW")
+G_CONT = 0x0D60                 # pfx: the word holding the offset behind HALT
+G_HCONT = (("rawb", (0x55,), "PUSH BP"), ("rawb", (0x8B, 0xEC), "MOV BP, SP"),
+           ("rawb", (0x36, 0xA1, G_CONT & 0xFF, G_CONT >> 8), f"MOV AW, SS:[{G_CONT:04X}h]"),
+           ("rawb", (0x89, 0x46, 0x02), "MOV [BP+2], AW   ; the frame's PC: behind HALT"),
+           ("rawb", (0x5D,), "POP BP"), ("fint",), ("reti",))
+G_X = {
+    "r0": ((), (), (), "nothing: ROL BP,8+ (the sled) in front of HALT", {}),
+    "nop": ((), (("nop", 1),), (), "NOP", {}),
+    "n2": ((), (("nop", 2),), (), "NOP ; NOP", {}),
+    "n3": ((), (("nop", 3),), (), "NOP ; NOP ; NOP", {}),
+    "inc": ((), (("rawb", (0x40,), "INC AW"),), (), "INC AW", {}),
+    "mr": ((), (("rawb", (0x8B, 0xC0), "MOV AW, AW"),), (), "MOV AW,AW", {}),
+    "cb": ((), (("rawb", (0x98,), "CVTBW"),), (), "CVTBW", {}),
+    "lf": ((), (("rawb", (0x9F,), "MOV AH, PSW"),), (), "MOV AH,PSW", {}),
+    "m8": ((), (("rawb", (0xB1, 0x00), "MOV CL, 0"),), (), "MOV CL,imm8", {}),
+    "mcw": ((), (("rawb", (0xB9, 0x00, 0x00), "MOV CW, 0000h"),), (), "MOV CW,imm16", {}),
+    "a6": ((), (("rawb", (0x81, 0xC1, 0x00, 0x00), "ADD CW, 0000h   ; 81 /0 iw"),), (), "ADD CW,imm16", {}),
+    "rol1": ((), (("rol", 1),), (), "ROL BP,1", {}),
+    "rol2": ((), (("rol", 2),), (), "ROL BP,2", {}),
+    "rol4": ((), (("rol", 4),), (), "ROL BP,4", {}),
+    "mul": ((), (("x", "mul", 1),), (), "MULU IX", {}),
+    "div": ((("dw0",),), (("x", "div", 1),), (), "DIVU IX", {}),
+    # the handler puts the address behind HALT in the frame's PC (the landed core pushes the prefix's address)
+    "pfx": ((), (), (), "nothing; HALT behind a prefix (DS1: HALT)",
+            dict(hp=0x26, lead=(("cont",),), hand={"nmi": G_HCONT})),
+    "xch": ((), (("rawb", (0x93,), "XCH AW, BW"),), (), "XCH AW,BW", {}),
+    "rd": ((), (("rawb", (0x36, 0xA1, 0x00, 0x0D), "MOV AW, SS:[0D00h]"),), (), "MOV AW,SS:[m] (a read)", {}),
+    "pop": ((("pushw",),), (("popw",),), (), "POP AW (a read)", {}),
+    "wr": ((), (G_WR,), (), "MOV SS:[m],AW (a write)", {}),
+    "push": ((), (("pushw",),), (("popw",),), "PUSH AW (a write)", {}),
+    "out": ((), (("rawb", (0xE7, 0x80), "OUT 80h, AW"),), (), "OUT 80h,AW", {}),
+    "in": ((), (("rawb", (0xE5, 0x80), "IN AW, 80h"),), (), "IN AW,80h", {}),
+    "fo": ((), (("brt", "o"),), (), "a short jump; HALT first at its target, an odd address", {}),
+    "fe": ((), (("brt", "e"),), (), "a short jump; HALT first at its target, an even address", {}),
+    "ei": ((), (("ei",),), (), "EI (IE 1 before)", {}),
+    "di": ((), (("di",),), (), "DI", {}),
+    "e0": ((), (("ei",),), (), "EI (IE 0 before)", dict(pre=())),
+    "sfr": ((), (("st", 0xFF00, 0x00),), (), "MOV byte DS1:[FF00h],imm8 (P0's latch)", {}),
+    "tms": ((), (la.START,), (), "MOV byte DS1:[FF90h],imm8 (TM0's start; TMIC0 masked)", dict(ic={"tm0": 0x47})),
+    "ram": ((), (("st", 0xFE40, 0x00),), (), "MOV byte DS1:[FE40h],imm8 (internal RAM)", {}),
+    "wi": ((), (("rawb", (0x36, 0xC6, 0x06, 0xA0, 0x0D, 0x00), "MOV byte SS:[0DA0h], 00h"),), (),
+           "MOV byte SS:[m],imm8 (external)", {}),
+    "jn": ((), (("brt", "e"), ("nop", 1)), (), "a short jump to NOP ; HALT (an even target)", {}),
+    "ji": ((), (("brt", "e"), ("rawb", (0x40,), "INC AW")), (), "a short jump to INC AW ; HALT", {}),
+    "jr": ((), (("brt", "e"), ("rol", 4)), (), "a short jump to ROL BP,4 ; HALT", {}),
+    "jp": ((("pushw",),), (("brt", "e"), ("popw",)), (), "a short jump to POP AW ; HALT", {}),
+    "hh": ((), (("hlt",),), (), "HALT (HALT ; HALT, two edges)", {}),
+    # the second batch: more one- and two-byte register instructions (which of them carry NOP's clock)
+    "xcw": ((), (("rawb", (0x91,), "XCH AW, CW"),), (), "XCH AW,CW", {}),
+    "cwl": ((), (("rawb", (0x99,), "CVTWL"),), (), "CVTWL", {}),
+    "sah": ((), (("rawb", (0x9E,), "MOV PSW, AH"),), (), "MOV PSW,AH", {}),
+    "clc": ((), (("rawb", (0xF8,), "CLR1 CY"),), (), "CLR1 CY", {}),
+    "cmc": ((), (("rawb", (0xF5,), "NOT1 CY"),), (), "NOT1 CY", {}),
+    "cld": ((), (("rawb", (0xFC,), "CLR1 DIR"),), (), "CLR1 DIR", {}),
+    "dec": ((), (("rawb", (0x48,), "DEC AW"),), (), "DEC AW", {}),
+    "daa": ((), (("rawb", (0x27,), "ADJ4A"),), (), "ADJ4A", {}),
+    "aaa": ((), (("rawb", (0x37,), "ADJBA"),), (), "ADJBA", {}),
+    "add": ((), (("rawb", (0x03, 0xC0), "ADD AW, AW"),), (), "ADD AW,AW", {}),
+    "icl": ((), (("rawb", (0xFE, 0xC1), "INC CL"),), (), "INC CL", {}),
+    "shl": ((), (("rawb", (0xD1, 0xE0), "SHL AW, 1"),), (), "SHL AW,1", {}),
+}
+# the second batch: a short jump to an even / odd target, k INC AW, HALT: HALT's pop at graded places in the fill's
+# fetches, the instruction in front always INC AW
+for _k in range(1, 7):
+    for _t in "eo":
+        G_X[f"{_t}{_k}"] = ((), (("brt", _t),) + (("rawb", (0x40,), "INC AW"),) * _k, (),
+                            f"a short jump to an {'even' if _t == 'e' else 'odd'} target, {_k} INC AW", {})
+# the third batch: X_w is X with one wait on every cycle of block 0 (the code, the stack, the marks): a fetch is four
+# clocks, so a fetch can end on the clock in front of HALT's first word behind NOP, or cover the E word's clock alone
+G_WAIT = ("r0", "nop", "n2", "inc", "cb", "mr", "xch", "m8", "jn", "ji", "fo", "e2", "o2", "e3", "e4", "o6")
+for _k in G_WAIT:
+    _f, _x, _b, _t, _kw = G_X[_k]
+    G_X[_k + "_w"] = (_f, _x, _b, _t + ", one wait in block 0", dict(_kw, wt=1))
+G_PAIRS = (("r0", "nop"), ("inc", "n2"), ("mr", "cb"), ("m8", "mcw"), ("a6", "lf"), ("rol1", "rol2"), ("rol4", "mul"),
+           ("div", "n3"), ("rd", "pop"), ("wr", "push"), ("out", "in"), ("fo", "fe"), ("ei", "di"), ("e0", "sfr"),
+           ("tms", "ram"), ("wi", "xch"), ("jn", "ji"), ("jr", "jp"), ("hh",), ("pfx",),
+           ("xcw", "cwl"), ("sah", "clc"), ("cmc", "cld"), ("dec", "daa"), ("aaa", "add"), ("icl", "shl"),
+           ("e1", "o1"), ("e2", "o2"), ("e3", "o3"), ("e4", "o4"), ("e5", "o5"), ("e6", "o6"),
+           ("r0_w", "nop_w"), ("n2_w", "inc_w"), ("cb_w", "mr_w"), ("xch_w", "m8_w"), ("jn_w", "ji_w"), ("fo_w", "e2_w"),
+           ("o2_w", "e3_w"), ("e4_w", "o6_w"))
+G_BASE = 16                     # the first edge behind the core's pop of HALT at sled 0 (clocks)
+G_NS, G_NJ = 4, 4
+G_E2M = 575                     # ticks from the event record's end to mark 1's write (the pilot: every window)
+G_E2M_W = 671                   # the same with one wait in block 0 (the pilot)
+G_PH = 15                       # the edge's tick within the clock, as f5_le_bon's (the event record's end + 32 n + 15)
+# the landed core's pop of HALT (its first word) in clocks behind mark 1's write at sled 0, by X (the pilot:
+# build/overseer/int-rows4/tools/pilot.py, a simulation with the edges far behind)
+G_POP = {"r0": 41, "nop": 45, "inc": 43, "n2": 49, "mr": 44, "cb": 44, "m8": 47, "mcw": 48, "a6": 48, "lf": 43, "rol1": 55,
+         "rol2": 57, "rol4": 61, "mul": 75, "div": 86, "n3": 53, "rd": 55, "pop": 63, "wr": 52, "push": 50, "out": 54,
+         "in": 59, "fo": 58, "fe": 58, "ei": 54, "di": 45, "e0": 56, "sfr": 52, "tms": 57, "ram": 52, "wi": 52, "xch": 45,
+         "jn": 65, "ji": 64, "jr": 81, "jp": 82, "hh": 41, "pfx": 45,
+         "xcw": 45, "cwl": 50, "sah": 43, "clc": 43, "cmc": 43, "cld": 43, "dec": 43, "daa": 51, "aaa": 58, "add": 44,
+         "icl": 47, "shl": 51, "e1": 64, "o1": 67, "e2": 67, "o2": 69, "e3": 69, "o3": 71, "e4": 71, "o4": 74, "e5": 74,
+         "o5": 77, "e6": 77, "o6": 79,
+         "r0_w": 45, "nop_w": 49, "n2_w": 53, "inc_w": 47, "cb_w": 48, "mr_w": 49, "xch_w": 49, "m8_w": 52, "jn_w": 72,
+         "ji_w": 72, "fo_w": 64, "e2_w": 76, "o2_w": 78, "e3_w": 78, "e4_w": 80, "o6_w": 90}
+G_SECOND = 160 * CLK - 600      # hh: the second edge 160 clocks behind the first (about 26 behind the second pop)
+
+
+def emit_g(a, ops, meta):
+    """passage.emit_ops with: hlt [prefix] (HALT, its offset in meta "halts"), brt o / e (a short jump whose target
+    is the next instruction at an odd / even address)."""
+    for op in ops:
+        if op[0] == "hlt":
+            if len(op) > 1 and op[1]:
+                a.op([op[1]], "DS1:   ; a prefix in front of HALT")
+            meta.setdefault("halts", []).append(len(a.b))
+            a.op([0xF4], "HALT")
+            if "cont" in meta:
+                at = meta.pop("cont")
+                a.b[at:at + 2] = len(a.b).to_bytes(2, "little")
+        elif op[0] == "cont":
+            a.op([0x36, 0xC7, 0x06, G_CONT & 0xFF, G_CONT >> 8, 0, 0],
+                 f"MOV word SS:[{G_CONT:04X}h], the offset behind HALT")
+            meta["cont"] = len(a.b) - 2
+        elif op[0] == "brt":
+            at = len(a.b) + 2
+            skip = (0 if at & 1 else 1) if op[1] == "o" else (1 if at & 1 else 0)
+            a.op([0xEB, skip], f"BR short $+{2 + skip}   ; the queue flushed, the target {'odd' if op[1] == 'o' else 'even'}")
+            if skip:
+                a.op([0x90], "NOP   ; skipped")
+        else:
+            pa.emit_ops(a, [op], meta)
+
+
+def gwindow(series, n, ops, **kw):
+    win = pa.window(series, n, (), **kw)
+    tail = win.body
+
+    def body(a):
+        emit_g(a, ops, win.meta)
+        tail(a)
+    win.body = body
+    return win
+
+
+def g_delay(key, j):
+    e2m = G_E2M_W if key.endswith("_w") else G_E2M
+    return e2m + (G_POP.get(key, 120) + G_BASE + j) * CLK + G_PH - 4      # 120: a pilot's edge, far behind
+
+
+def g_prog(name, keys):
+    wins, ent = [], []
+    for key in keys:
+        front, x, back, text, kw = G_X[key]
+        kw = dict(kw)
+        hp = kw.pop("hp", 0)
+        pre = kw.pop("pre", (("ei",),))
+        lead = kw.pop("lead", ())
+        for s in range(G_NS):
+            for j in range(G_NJ):
+                k = len(wins)
+                ops = (lead + (("ev", k + 1), ("mark", 1)) + front + (("sled", s),) + x + (("hlt", hp), ("nop", 1)) + back
+                       + (("mark", 2), ("inc", 8)))
+                wins.append(gwindow("g" + key, k, ops, pre=pre, odd=s & 1, xk=key, sl=s, j=j, **kw))
+                ent.append(dict(event=k + 1, delay=g_delay(key, j), hold=600, levels={"NMI": 0}))
+                if key == "hh":
+                    ent.append(dict(event=None, delay=G_SECOND - 10, hold=600, levels={"NMI": 0}))
+    return pa.prog(name, wins, "HALT's entry, NMI: " + " / ".join(G_X[k][3] for k in keys), entries=ent)
+
+
+# (c) H2
+H2_NMI = 170                    # clocks: the later NMI behind the INT edge (a HALT entered behind INT's take is woken)
+H2_TAIL = (("mark", 2), ("mark", 3)) + (("rol", 31),) * 4 + (("inc", 12),)
+H2_E2M = 575                    # ticks from the event record's end to mark 1's write in f5_le_h2a's frame (the pilot)
+H2_PH = 1                       # the edge's tick within the clock, as f5_le_h2a's even steps
+# the landed core's pop of HALT in clocks behind mark 1's write (the pilot): f5_le_h2a's window; the same behind
+# the restart's store and an even sled (h2p: an odd sled's wait makes it one more)
+H2_POP = {"a": 30, "p": 33}
+
+
+def h2_ent(ev, delay, nmi=0):
+    e = [dict(event=ev, delay=delay, hold=0, levels={"INT": 1})]
+    if nmi:
+        e.append(dict(event=None, delay=nmi * CLK - 10, hold=600, levels={"NMI": 0}))
+    return e
+
+
+def h2_tail(halt):
+    return ((("x", "halt", 1),) + H2_TAIL) if halt else (("x", "nop", 40), ("mark", 2), ("mark", 3), ("inc", 12))
+
+
+def set_h2v(a, kind, pre=(("ei",),)):
+    """f5_le_h2a / h2b's windows and edges with X = kind (halt / nop) and the setup's `pre`."""
+    wins, ent = [], []
+    for j in range(32):
+        k = len(wins)
+        x = pa.train("halt") if kind == "halt" else h2_tail(False)
+        ops = (("ev", k + 1), ("mark", 1), ("dw0",), ("sl", a)) + x
+        wins.append(pa.window("h2", k, ops, pre=pre, odd=a & 1, kind=kind, a=a, j=j))
+        ent += h2_ent(k + 1, H2_BASE * 32 - 4 + 16 * j)
+    return wins, ent
+
+
+def set_h2e(halt):
+    """INT raised with IE 0 (the event; two fillers), mark 1, a sled, EI, HALT / a NOP train."""
+    wins, ent = [], []
+    for s in range(16):
+        k = len(wins)
+        ops = (("ev", k + 1), ("fil", 2), ("mark", 1), ("dw0",), ("sl", s), ("ei",)) + h2_tail(halt)
+        wins.append(pa.window("h2e", k, ops, odd=s & 1, kind="halt" if halt else "nop", a=s, sl=s))
+        ent += h2_ent(k + 1, 200, nmi=330 if halt else 0)       # the edge is 145 .. 160 clocks in front of HALT
+    return wins, ent
+
+
+def set_h2x(js, halt=True, pin="INT"):
+    """f5_le_h2a's window; the edge j + 1 clocks (and a tick) behind the start of the core's first clock of HALT.
+    pin NMI: the request is the NMI pin (the later NMI is then a second pulse)."""
+    wins, ent = [], []
+    for j in js:
+        k = len(wins)
+        ops = (("ev", k + 1), ("mark", 1), ("dw0",), ("sl", 0)) + h2_tail(halt)
+        wins.append(pa.window("h2x" if pin == "INT" else "n2x", k, ops, pre=(("ei",),), kind="halt" if halt else "nop",
+                              a=0, j=j))
+        d = H2_E2M + (H2_POP["a"] + j + 1) * CLK + H2_PH - 4
+        if pin == "INT":
+            ent += h2_ent(k + 1, d, nmi=H2_NMI if halt else 0)
+        else:
+            ent.append(dict(event=k + 1, delay=d, hold=600, levels={"NMI": 0}))
+            if halt:
+                ent.append(dict(event=None, delay=H2_NMI * CLK - 600 - 10, hold=600, levels={"NMI": 0}))
+    return wins, ent
+
+
+def set_h2g():
+    """INT raised with IE 0 (the event; two fillers), mark 1, f5_le_h2a's sled, EI, ROL BP,n (n 1 .. 16), HALT."""
+    wins, ent = [], []
+    for n in range(1, 17):
+        k = len(wins)
+        ops = (("ev", k + 1), ("fil", 2), ("mark", 1), ("dw0",), ("sl", 0), ("ei",), ("rol", n)) + h2_tail(True)
+        wins.append(pa.window("h2g", k, ops, kind="halt", a=0, rn=n))
+        ent += h2_ent(k + 1, 200, nmi=360)
+    return wins, ent
+
+
+def set_h2p():
+    wins, ent = [], []
+    for x in range(16):
+        for j in (0, 1):
+            k = len(wins)
+            ops = ((("st", 0xFF9D, 0x47), ("sled", x), ("ev", k + 1), ("mark", 1), ("dw0",), ("sl", 0))
+                   + pa.train("halt"))
+            wins.append(pa.window("h2p", k, ops, pre=(("ei",),), odd=x & 1, kind="halt", a=0, rx=x, j=j))
+            ent += h2_ent(k + 1, H2_E2M + (H2_POP["p"] + (x & 1) + 31 + j) * CLK + H2_PH - 4)
+    return wins, ent
+
+
+def d_programs():
+    progs = [g_prog(f"f5_lg_a{i:02d}", keys) for i, keys in enumerate(G_PAIRS)]
+    masked = (("ei",), ("st", 0xFF4C, 0xC7))
+    for name, (wins, ent), note in (
+            ("h2n", set_h2v(0, "nop"), "H2: f5_le_h2a with a NOP train in HALT's place"),
+            ("h2o", set_h2v(1, "nop"), "H2: f5_le_h2b with a NOP train in HALT's place"),
+            ("h2m", set_h2v(0, "halt", pre=masked), "H2: f5_le_h2a with INTP0's flag set and masked"),
+            ("h2q", set_h2v(1, "halt", pre=masked), "H2: f5_le_h2b with INTP0's flag set and masked"),
+            ("h2e", set_h2e(True), "H2: INT standing with IE 0; a sled, EI, HALT"),
+            ("h2f", set_h2e(False), "H2: INT standing with IE 0; a sled, EI, a NOP train"),
+            ("h2x", set_h2x(range(-20, -4)), "H2: the INT edge 20 .. 5 clocks in front of the core's pop of HALT"),
+            ("h2y", set_h2x(range(-4, 12)), "H2: the INT edge from 4 clocks in front of the core's pop of HALT to 11 behind"),
+            ("h2z", set_h2x(range(-20, 12), halt=False), "H2: the same 32 edges, a NOP train in HALT's place"),
+            ("h2p", set_h2p(), "H2: the scan's restart a sled of 0 .. 15 clocks in front of f5_le_h2a's window")):
+        progs.append(pa.prog("f5_lg_" + name, wins, note, entries=ent, intak=True))
+    wins, ent = set_h2g()
+    progs.append(pa.prog("f5_lg_h2g", wins, "H2: INT standing with IE 0; EI, ROL BP,n, HALT", entries=ent, intak=True))
+    for name, (wins, ent), note in (
+            ("n2x", set_h2x(range(-20, -4), pin="NMI"), "f5_lg_h2x with the NMI pin as the request"),
+            ("n2y", set_h2x(range(-4, 12), pin="NMI"), "f5_lg_h2y with the NMI pin as the request"),
+            ("n2z", set_h2x(range(-20, 12), halt=False, pin="NMI"), "f5_lg_h2z with the NMI pin as the request")):
+        progs.append(pa.prog("f5_lg_" + name, wins, note, entries=ent))
+    return {q.name: q for q in progs}
+
+
 def programs():
-    return {**a_programs(), **b_programs(), **c_programs()}
+    return {**a_programs(), **b_programs(), **c_programs(), **d_programs()}
 
 
 def one(name):
@@ -393,6 +694,23 @@ def one(name):
 
 
 SIM1_LIMIT = 1_500_000          # ticks: a window's program ends inside 150,000
+G_LIMIT = 8_000_000             # ticks: a rows-4 program ends inside 3,000,000
+
+
+def sim_g(name, tag, progs, limit=G_LIMIT):
+    """phase.run_set for one program on the core with the run's length bounded."""
+    from .traps import _sim, _stim
+    transport, harness = _sim()
+    try:
+        _stim(harness, progs[name])
+        rec = ph.run_one(harness, progs[name], "model", limit=limit)
+    finally:
+        transport.close()
+    ph._stamp(rec, "sim")
+    ph._save(rec, name, "sim" + tag)
+    print(f"{name}: sim{tag} {'PASS' if rec['passed'] else 'FAIL'} status=0x{rec['status']:04x} total={rec['total']} "
+          f"records={len(rec['trace'])} timeout={rec['timeout']} replay={rec['replay']} "
+          f"residual={rec['stitch_residual']}", flush=True)
 
 
 def sim1(names, tag=""):
@@ -559,7 +877,10 @@ def main():
                 os.makedirs("build/tr", exist_ok=True)
                 os.environ["V35_PLUSARGS"] = (f"+v35_trace=build/tr/{n}.trace +v35_idbg=build/tr/{n}.idbg "
                                               f"+v35_qdbg=build/tr/{n}.qdbg")
-            ph.run_set([n], "sim", a.tag, progs)
+            if n.startswith("f5_lg_"):
+                sim_g(n, a.tag, progs)      # (rows 4) a HALT may stand for good: the run's length bounded
+            else:
+                ph.run_set([n], "sim", a.tag, progs)
         return 0
     if a.action == "sim1":
         sim1([n for n in names if n.startswith("f5_le_b")], a.tag)
