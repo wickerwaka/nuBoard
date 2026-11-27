@@ -4783,3 +4783,36 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   where silicon runs the NOP first (24 of 24). In the HLDRQ rows the kind follows the
   last fetch made inside HALT. (4) H2: the INT pin is taken on a two-clock lattice that
   moves with the program; the core's /INTAK is 2.5 to 6 clocks early.
+- **2026-11-27, work order 52 landed: the prefetcher runs in HALT.** Silicon does not
+  stop the prefetcher in HALT (ROWS-INT2 4), so HALT's prefetch stop is gone from the bus
+  unit (fix40's `fstop`, its register `hpr`); the queue's suspension in the halt loop is
+  STOP's alone (`sq`, from STOP's mark word on; f4_stop, f4_stop_r and the CLKOUT rows
+  unchanged). The 8 HLDRQ windows in which the landed core stood still complete; behind a
+  flush the core makes silicon's four fetches inside HALT at silicon's clocks (bor, ber:
+  32 of 32 windows on the fetches); behind a hold the fetches are made 1.5 clocks behind
+  /HLDAK's rise as on silicon. introws2 is in the gate (336 of 844 windows equal in 39
+  sets, the A sets on the fetches without the controller's cycle; the H and B.2 sets 0:
+  the take's kind). ACCEPTED LOSS (the user's ruling): periph f4_tm series tm0_md, whose
+  five take periods were each within the gate's 16 clocks (none exact), has its fourth 19
+  off (314 for silicon's 295); per take against silicon +3 +7 -16 +3 +16 became +3 +3 -16
+  +19 0: one take moved by the 16-clock step of the take's phase out of HALT. It is
+  recorded with the open H1 item; the write stream is equal (563 of 563). OPEN: /HLDAK's
+  rise one clock early at one HLDRQ phase (right at f4_hold's; two trials each cost
+  f4_hold its exactness; the data fits two bare constants, not a mechanism); silicon
+  still starts a chained fetch up to 4.5 clocks after HLDRQ's rise, the core 3.5; H1
+  (the take's kind out of HALT: on silicon it follows the bus unit's last fetch or
+  hold-end inside HALT, on the core HALT's pop); H2. Corpus 30,385 of 30,536, 0 runs
+  differ. Timing at 17 ns +2.677 / +2.903 / +3.105 ns; 9,844 LUT4, 569 ADD, 2,713 FF,
+  36 RAM_5K; no budget change.
+- **2026-11-27, the pending term's design trial (build/overseer/int-design4); rulings.**
+  No existing signal rises on the run's first clock. What reproduces the fetches (572 of
+  576 new windows, all f5_ld_* and f5_ph_* rows; corpus and every gate line unchanged) is
+  the queue's count less the bytes the EU has already asked for, at most 4, a clock ahead
+  of the request line, with four sources of "asked for": (a) a routine's operand bytes
+  and (b) the ModR/M byte, both in the loader already; (c) a decode bit of the staged
+  opcode ("its routine takes the next byte on its first word"); (d) the next opcode two
+  words in front of the routine's E word. f4_tm's write stream is still lost under the
+  grant (the take's side), and the takes are wrong in 123 of the 572 windows. Rulings:
+  (c) is NOT acceptable (look-ahead); (d) is left out; the take side (H1, P7) is trialled
+  next with the grant held until f4_tm's stream is kept; more socket rows (PUSH imm8 /
+  imm16, a 0F form; the fetch chained behind the displaced fetch).

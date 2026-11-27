@@ -4,10 +4,13 @@ under HLDRQ with the queue empty). A sibling of introws.py (lattice.py's frame, 
 comparison; passage.py's frame for the INT pin).
 
     PYTHONPATH=host/src:. uv run --with pyusb python -m validation.v35s.introws2 socket --socket-fitted [NAME ...] [--tag=-2]
-    PYTHONPATH=host/src:. python3 -m validation.v35s.introws2 sim [NAME ...] [--trace]
+    PYTHONPATH=host/src:. python3 -m validation.v35s.introws2 sim [NAME ...] [--trace] [--whole] [--tag=T]
+                               (WO52: without --trace / --whole the B.2 sets run as sim1)
     PYTHONPATH=host/src:. python3 -m validation.v35s.introws2 sim1 [NAME ...]        (B.2: one window a run, bounded)
     PYTHONPATH=host/src:. python3 -m validation.v35s.introws2 repeat [NAME ...]      (socket / socket-2)
-    PYTHONPATH=host/src:. python3 -m validation.v35s.introws2 gate [NAME ...]        (socket / sim)
+    PYTHONPATH=host/src:. python3 -m validation.v35s.introws2 gate [NAME ...] [--tag=T] [-v]
+                               (WO52, the gate: socket / sim per set, the B.2 sets window by window against
+                               sim1 runs; one line a set and a total)
     PYTHONPATH=host/src:. python3 -m validation.v35s.introws2 read [NAME ...] [--ref socket] [-v]
     PYTHONPATH=host/src:. python3 -m validation.v35s.introws2 emit
 
@@ -52,6 +55,7 @@ Receipts: validation/v35s/receipts/f5-<name>-<backend>.json.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sys
 
@@ -317,6 +321,118 @@ def sim1(names, tag=""):
             dict(program=n, backend="sim1", core="v35", limit=SIM1_LIMIT, runs=runs), separators=(",", ":")) + "\n")
 
 
+# ------------------------------------------------------------------ (WO52) the gate
+# A B.2 window run on its own (sim1) sits at another place in the code than the same window of the whole program
+# the socket ran: its fetch addresses and the pushed PC are compared relative to the window's HALT (meta
+# "halts"), everything else as phase.compare / onchip_t.norm_window has it (records, data unless a read, ticks
+# after the begin marker within 1, pins within 4), with /HLDAK's level (P26) beside P15's in the pin records. Not
+# compared: the code fetches' data (past the window a prefetch reads the next window's code, or the end's) and the
+# event's number (the event record's, and AW stored holding it in AL), and in the take's PSW push the status flags
+# (V, S, Z, AC, P, CY: what the windows in front left).
+EV_PORT = 0xFF12
+
+
+def b_norm(w, halt, code_end, ev):
+    out = [("T", w["T"])]
+    vec = False
+    for kind, r in w["rows"]:
+        if kind == "pin":
+            out.append(("pin", r[1] & oc.P15, r[0] - w["t0"], r[2] >> 6 & 1))
+            continue
+        a, d = r[1], (r[2] if kind in ("mw", "iow", "fetch") else 0)
+        if kind == "mr" and a < 0x80:
+            vec = True
+        elif kind == "mw" and vec:
+            vec, d = False, ("psw", d & ~0x08D5)     # the take's PSW push: the status flags are the history's
+            out.append((kind, a, d, r[0] - w["t0"], oc.waits_of(r)))
+            continue
+        if kind == "fetch" and oc.CODE <= a < code_end + 0x20:
+            a, d = ("code", a - oc.CODE - halt), None      # a prefetch past the window reads the next window's code
+        if kind == "iow" and a == EV_PORT:
+            d = None                                        # the event record's number: the window's in the program
+        if kind == "mw" and d & 0xFF == ev:
+            d = ("ev", d >> 8)                  # AW stored holding the event's number in AL
+        elif kind == "mw" and abs(d - halt) <= 4:
+            d = ("pc", d - halt)                # the pushed PC: HALT's offset or one / two behind it
+        out.append((kind, a, d, r[0] - w["t0"], oc.waits_of(r)))
+    return out
+
+
+def gate_b(name, ref, cand, progs, verbose=False, tol=1, pin_tol=4):
+    """socket window k of the whole program against sim1 run k (window 0 of the one-window program)."""
+    from . import introws2_read as rd
+    p = progs[name]
+    a = ph.load(name, ref)
+    if a["program_sha256"] != hashlib.sha256(p.build()["text"]).hexdigest():
+        print(f"{name}: the {ref} receipt is of another program")
+        return 0, len(p.windows), False
+    runs = ph.load(name, cand)["runs"]
+    wa, _ = oc.windows(a, p)
+    ea = p.build()["code_end"]
+    diff, still = [], 0
+    for k, w in enumerate(p.windows):
+        rec = runs.get(str(k))
+        p1 = one(f"{name}.{k}")
+        if rec is None:
+            diff.append((k, "no run"))
+            continue
+        if rec["program_sha256"] != hashlib.sha256(p1.build()["text"]).hexdigest():
+            diff.append((k, "the run is of another program"))
+            continue
+        if rec["timeout"] or k not in wa:
+            still += bool(rec["timeout"])
+            diff.append((k, "stands still (the run ends on the limit)" if rec["timeout"] else "missing"))
+            continue
+        wb = rd.all_windows(rec, p1).get(0)
+        if wb is None or wb["T"] is None:
+            diff.append((k, "the window does not end"))
+            continue
+        x = b_norm(wa[k], w.meta["halts"][0], ea, k + 1)
+        y = b_norm(wb, p1.windows[0].meta["halts"][0], p1.build()["code_end"], 1)
+        xb, yb = [q for q in x if q[0] != "pin"], [q for q in y if q[0] != "pin"]
+        xp, yp = [q for q in x if q[0] == "pin"], [q for q in y if q[0] == "pin"]
+        if not oc.near(xb, yb, tol) or not oc.near(xp, yp, pin_tol):
+            dt = wb["T"] - wa[k]["T"]
+            diff.append((k, f"T {wa[k]['T']} / {wb['T']} ({oc.clocks(dt)} clocks)"
+                         + ("" if abs(dt) > tol else "; same length, records differ")))
+    n = len(p.windows)
+    print(f"{name}: {ref} / {cand}: {'EQUAL' if not diff else 'DIFFER'} ({n - len(diff)} of {n} windows equal; "
+          f"{still} stand still; one window a run, bounded at {SIM1_LIMIT} ticks)")
+    for k, why in diff[:None if verbose else 6]:
+        m = p.windows[k].meta
+        print(f"  w{k} {m.get('series', '')} s{m.get('sl', '')}: {why}")
+    return n - len(diff), n, not diff
+
+
+def gate(names, ref, cand, progs, verbose=False):
+    """Every set against the socket: the B.2 sets (f5_le_b*) window by window against `sim1` receipts (one
+    window a run, bounded: a window that stands still loses only itself), the others against the whole-program
+    `sim` receipt (phase.compare). One line a set, then the total."""
+    eq = tot = 0
+    ok = True
+    for n in names:
+        if n.startswith("f5_le_b"):
+            e, t, o = gate_b(n, ref, "sim1" + cand[len("sim"):] if cand.startswith("sim") else cand, progs, verbose)
+        else:
+            if not ph.receipt_path(n, cand).exists():
+                print(f"{n}: no {cand} receipt")
+                ok = False
+                continue
+            import contextlib
+            import io
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                o = ph.compare(n, ref, cand, progs, verbose=verbose)
+            text = buf.getvalue()
+            print(text, end="")
+            import re
+            m = re.search(r"\((\d+) of (\d+) windows equal", text)
+            e, t = (int(m.group(1)), int(m.group(2))) if m else (0, len(progs[n].windows))
+        eq, tot, ok = eq + e, tot + t, ok and o
+    print(f"introws2 total: {eq} of {tot} windows equal in {len(names)} sets")
+    return ok
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("action", choices=("socket", "sim", "sim1", "repeat", "gate", "emit", "read"))
@@ -326,6 +442,7 @@ def main():
     p.add_argument("--cand", default="sim")
     p.add_argument("--trace", action="store_true", help="sim: the core's trace / idbg / qdbg into build/tr/NAME.*")
     p.add_argument("--brief", action="store_true", help="read (A): one line a lead")
+    p.add_argument("--whole", action="store_true", help="sim: the B.2 sets as whole programs (default: sim1)")
     p.add_argument("--socket-fitted", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true")
     a = p.parse_args()
@@ -337,6 +454,10 @@ def main():
         ph.run_set(names, "socket", a.tag, progs)
         return 0
     if a.action == "sim":
+        if not a.trace and not a.whole:
+            # (WO52) the B.2 sets one window a run, bounded (a window may stand in HALT for good): sim1
+            sim1([n for n in names if n.startswith("f5_le_b")], a.tag)
+            names = [n for n in names if not n.startswith("f5_le_b")]
         for n in names:
             if a.trace:
                 os.makedirs("build/tr", exist_ok=True)
@@ -347,10 +468,12 @@ def main():
     if a.action == "sim1":
         sim1([n for n in names if n.startswith("f5_le_b")], a.tag)
         return 0
-    if a.action in ("repeat", "gate"):
+    if a.action == "gate":
+        return 0 if gate(names, a.ref, a.cand + a.tag, progs, verbose=a.verbose) else 1
+    if a.action == "repeat":
         ok = True
         for n in names:
-            ok &= ph.compare(n, a.ref, "socket-2" if a.action == "repeat" else a.cand, progs, verbose=a.verbose)
+            ok &= ph.compare(n, a.ref, "socket-2", progs, verbose=a.verbose)
         return 0 if ok else 1
     if a.action == "emit":
         ph.emit({n: progs[n] for n in names})

@@ -72,7 +72,7 @@
 // ce_b registers; tick B: the next-address mux (eight sources by the word's seq field and the
 // registered ex) into the ROM's read address. The ROM output is a register.
 //
-// Registered state (widths): upc 10, the ROM word 86 (96), retr 10, cnt 9 ((WO50) halted is no register: the word's halt bit), hl_q 1, wk_b 1; the ce_b
+// Registered state (widths): upc 10, the ROM word 86 (96), retr 10, cnt 9 ((WO50) halted is no register: the word's halt bit), sq 1 ((WO52) was hl_q), wk_b 1; the ce_b
 // copies ex_b 1, d1_b 10, (MX1) dc_b 1, dr_b 10 ((qprobe round 17) d2_b removed with DISPM).
 // Quartus 17.1 reads one import in a module header, so the imports sit in $unit scope
 // verilator lint_off IMPORTSTAR
@@ -497,17 +497,19 @@ module v35_useq
     // is reached until the FLUSH: `sp` once it has executed)
     // (consol) and halted: no prefetch while the sequencer is halted (the loader's fstop read
     // the halted state before; the queue's line is low for either)
-    // (WO50, the HALT loop) `hl_q`: the last clock's word was a halt word. The queue is suspended from the
-    // loop's second clock, so a fetch pending under an EU cycle at HALT's pop is still made (work order 49's
-    // P4; DESIGN-INT section 1 rule 5), and it stays suspended under the take's words
-    reg        hl_q = 1'b0;
+    // (WO50, the HALT loop; WO52) HALT does not stop the prefetcher (ROWS-INT2 section 4: silicon fetches
+    // inside HALT until the queue is full, behind a flush four fetches at F, F+3, F+6, F+9 with no request
+    // present, and a fetch displaced by HLDRQ is made after the hold). Only STOP suspends the queue: `sq`, the
+    // last clock's word was a halt word of STOP's loop, from its mark word (`w_stop`, STOP's first halt word)
+    // on, so `halted && sq` is WO50's `halted && hl_q` clock for clock in STOP (f4_stop: no bus cycle)
+    reg        sq = 1'b0;
     always_ff @(posedge clock) begin
         if (!reset_n)
-            hl_q <= 1'b0;
+            sq <= 1'b0;
         else if (ce_a)
-            hl_q <= word.halt;
+            sq <= word.halt && (w_stop || sq);
     end
-    assign q_susp = (sp && !word.flush) || su_q || (halted && hl_q);     // (the FLUSH word issues the target's fetch; su_q: word.susp, a flop)
+    assign q_susp = (sp && !word.flush) || su_q || (halted && sq);     // (the FLUSH word issues the target's fetch; su_q: word.susp, a flop)
     // (MX2) the suspension stands from the SUSP word's execution to the FLUSH (or an E)
     wire       sp_n = (ex && (word.flush || word.e)) ? 1'b0 : (ex && su_q) ? 1'b1 : sp;
 

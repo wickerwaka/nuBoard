@@ -659,7 +659,7 @@ module v35_bus
     // (r24, model_m CH_BNEXT, results Q42's second half) `wkbn`: the word now has no bus-wait kind
     // and is followed by a bus-idle word (the sequencer's free code flush with alt, no bi)
     reg         wkbn = 1'b0;
-    reg         aft = 1'b0, rqx = 1'b0, b4r = 1'b0, rqvr = 1'b0, ler = 1'b0, hpr = 1'b0;
+    reg         aft = 1'b0, rqx = 1'b0, b4r = 1'b0, rqvr = 1'b0, ler = 1'b0;
     reg         dst = 1'b0;                 // (qprobe round 13) the dispatch word waited on the last clock
     wire        xd = ex && wkd;                 // the dispatch word executes now (the boundary)
     wire        xf = ex && wkf;                // a FLUSH word executes now
@@ -676,13 +676,11 @@ module v35_bus
     // `fx` beside fe: also the fetch that started back to back behind a memory write with
     // nothing pending under it (Q130: MOV [d16],imm16 ; NOP, the NOP's boundary on t + 6)
     wire        gw = xd && ((pend && eu_dlv) || (b4r && !rqvr && ler) || ((fe || fx) && dlv_fetch && !dst));
-    // (fix40) HALT's stop from the clock after the word that pops HALT's opcode (`hpr`), not on that
-    // word's own clock: a fetch the line raises there still starts (Q14: nothing is fetched after
-    // the pop). Silicon, periph f4_tm's socket trace: behind RETI five refetches at PSW + 19 .. 39
-    // whatever the return address's parity, the fifth on the clock the core pops the sled's HALT
-    // when the return address is even; the core's pop-clock term cancelled it, the release then
-    // started it and the take out of HALT waited 3 clocks for it (f4_tb / f4_tm / f4_tout periods)
-    wire        fstop = hpr && !pend;   // trial T5: a fetch pending under an EU cycle when HALT's opcode is popped is still made
+    // (WO52) no HALT stop: the prefetcher runs in HALT as anywhere else (ROWS-INT2 section 4: behind a flush
+    // silicon makes four fetches inside HALT with no request present, and a fetch HLDRQ displaced is made
+    // after the hold). fix40's `fstop = hpr && !pend` (from the clock after the word popping HALT's opcode,
+    // a fetch pending under an EU cycle excepted) is gone with its register; STOP's suspension is the
+    // sequencer's (q_susp)
     wire        unused_hc = sf_nx.hc;      // (fix40) the pop clock's term, no longer read here
     // (r24, work order 20 A3, Q112, model_m REQ_PRI=5) behind a memory request word Y executed on a
     // fetch's last clock (`ry1`, on that fetch's delivery) no back-to-back fetch starts at all,
@@ -726,8 +724,8 @@ module v35_bus
     // (timing repair 1) the line as the grant reads it, Shannon's expansion on the queue's three
     // late facts: the request line, the five-held continuation (lv_q.r5) and the release (nrl);
     // each arm a function of registers (kept), the late facts selecting last. The same function
-    // as `line && !gw && !a1g && !fstop && !(rh && dlv_fetch) && !bnx` (`+v35_chk` every clock)
-    wire        g_c = !gw && !fstop && !(rh && dlv_fetch);
+    // as `line && !gw && !a1g && !(rh && dlv_fetch) && !bnx` (`+v35_chk` every clock; (WO52) no fstop)
+    wire        g_c = !gw && !(rh && dlv_fetch);
     wire        a1g1 = pend && eu_dlv && lo && ((A1_C1 && (ry1 || (ex && wkm && !wkr)))
                        || (A1_C2 && pl1 && ex && wkp && !req_v && !rsv && !rqo));
     wire        a1g0 = pend && eu_dlv && lo && A1_C1 && (ry1 || (ex && wkm && !wkr));
@@ -739,9 +737,9 @@ module v35_bus
     wire        fr = lv_q.nrl ? ((fetch_req && f1_1) || (lv_q.r5 && f2_1))
                               : ((fetch_req && f1_0) || (lv_q.r5 && f2_0));
 `ifndef SYNTHESIS
-    wire        fr_x = line && !gw && !a1g && !fstop && !(rh && dlv_fetch) && !bnx;
+    wire        fr_x = line && !gw && !a1g && !(rh && dlv_fetch) && !bnx;
 `endif
-    wire        gwy = line && (gw || a1g) && !fstop;
+    wire        gwy = line && (gw || a1g);
     // tick B: the stream's first boundary after this clock, and the hold
     wire        aft_n = xf ? 1'b1 : xd ? 1'b0 : aft;
     // (rules 4c, 4d, EMIN; rule 11) the boundary waits for the stream: the count below 3 for the
@@ -865,7 +863,6 @@ module v35_bus
             c5r <= 1'b0;
             rqvr <= 1'b0;
             ler <= 1'b0;
-            hpr <= 1'b0;
         end else if (ce_a) begin
             aft <= aft_n;
             rqx <= ex && wkr;
@@ -878,7 +875,6 @@ module v35_bus
             c5r <= lv.c5;       // (r25 B6)
             rqvr <= eu_rq_nx;
             ler <= sle;
-            hpr <= sf_nx.hp;
         end
     end
     always @(posedge clock) begin

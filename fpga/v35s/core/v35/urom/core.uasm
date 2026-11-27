@@ -41,9 +41,8 @@ routine lock op=F0 book="BUSLOCK" why="the bus lock pin is not built: its one wo
 ; B tests the release, A the take, alternating, so each test is made every second clock; B is
 ; HALT's own first word. On a halt word the condition field is read as the loop's two tests (no
 ; new condition code): DN is the controller's wake, SGN the take as it stands (sgo:
-; NMI's or the maskable offer's). The prefetcher stops at HALT's pop (the queue suspended from the
-; loop's second clock: a fetch pending under an EU cycle is still made) and stays stopped under
-; the take's words. Release (B): the E, the instruction after HALT, whose start takes no maskable
+; NMI's or the maskable offer's). (WO52) The prefetcher runs in HALT as anywhere else, filling the
+; queue (ROWS-INT2 section 4: no HALT stop on silicon; STOP alone suspends the queue). Release (B): the E, the instruction after HALT, whose start takes no maskable
 ; request (NBI: it runs, a take follows at its end); with IE 0 the wake is the controller's count
 ; from B in a slot (f5_la_w1 .. w9). Take (A, IE 1): the take's dispatch with no E and no fetch
 ; (the pushed PC is behind HALT: f3_vec)
@@ -51,6 +50,6 @@ routine halt op=F4 hlt=1 why="(WO50) HALT's wait as silicon's two-word loop (B t
 hl_b: halt jnc=DN:hl_a                      ; B: the release test (on a halt word the condition DN reads the controller's wake); not released: the take test
     e seg=NBI                               ; the release: E, the instruction after HALT; NBI: its start takes no maskable request (it runs first)
 hl_a: halt jnc=SGN:hl_b                     ; A: the take test (on a halt word SGN reads the take as it stands); none: back to B
-    halt                                    ; a word under the take (the prefetch stop stands)
-    halt                                    ; a word under the take (the prefetch stop stands)
+    halt                                    ; a word under the take
+    halt                                    ; a word under the take
     halt redisp                             ; the take's dispatch: the interrupt entry with no E and no fetch (no take after all: HALT again)

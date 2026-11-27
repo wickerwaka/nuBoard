@@ -10359,3 +10359,20 @@ condition codes and NT pages unchanged; no port budget row changed. P6 (the cont
 - **INTP's sampler half a clock later (item 9):** INTP0-2 are sampled at ce_b (`lvh`), the edge formed at the end
   of that clock (`!dv`) and the flag's count INTP_DLY - 1 behind it: silicon samples 8 to 12 ticks of 32 behind
   the clock boundary (introws section 2); the flag lands where it did. NMI's sampler is unchanged.
+
+## Work order 52: HALT does not stop the prefetcher
+
+- **Silicon (ROWS-INT2 section 4, two socket sessions):** HALT does not stop the prefetcher. Behind a flush it makes
+  four fetches (7 bytes) inside HALT with no request present, at F, F+3, F+6, F+9; a fetch HLDRQ displaced is made
+  after the hold, inside HALT, until the queue is full.
+- **Built:** both of HALT's prefetch stops are gone. v35_bus: fix40's `fstop = hpr && !pend` (from the clock after
+  the word popping HALT's opcode) and its register `hpr`; `g_c`, `fr_x` and `gwy` lose the term. v35_useq: the
+  queue's suspension in HALT's loop (`halted && hl_q`) is now STOP's alone: `sq`, the last clock's word was a halt
+  word of STOP's loop from its mark word (`w_stop`) on, so `halted && sq` is the old term clock for clock in STOP
+  (STOP's mark is its first halt word; HALT's opcode alone sets `hp`, STOP's routine has no `hlt`). The loader's
+  `hp` stays: the boundary's stream wait (`ews`) and the EU's `hp_b` still read it.
+- **Result:** the eight windows of introws2's B.2 sets that stood still for good now end; f5_le_bor / ber make the
+  four fetches at silicon's clocks in all 32 windows; behind a hold the core now fetches, its first fetch 1.5 clocks
+  behind /HLDAK's rise as on silicon (the rise itself is one clock early: open, see build/overseer/wo52/NOTES.md).
+- `introws2 gate` (new): every set against the socket; the B.2 sets window by window against one-window runs
+  (`sim1`, bounded), fetch addresses and the pushed PC relative to the window's HALT.
