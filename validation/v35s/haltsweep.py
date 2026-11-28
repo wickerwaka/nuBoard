@@ -16,6 +16,11 @@ any did not.
                       programs: 0 .. 1,535 ticks), six NOPs and HALT behind the OUT; x = 1 IE 1, 0 IE 0
     f5_hs_dmNNx       (twelve programs of eight) a DMA request (channel 1, I/O to memory, one transfer, DIC1 unmasked) by DMARQ1's edge at
                       the same swept delays; the transfer's end raises DIC1, which takes (IE 1) or releases (IE 0)
+    f5_hs_pfPs        (WO53) prefix P (ds1 ps ss ds0 rep repne lock) in front of HALT; s = n1 NMI with IE 1, n0 NMI with
+                      IE 0, i1 INTP0 with IE 1; the edge swept from inside HALT (24 tests, 24-tick steps). intr.py's
+                      logging handler: check wants one take a test, its pushed PC HALT + 1 (INTP0: or HALT + 2, behind
+                      the NOP the release ran), and the run's end (a HALT entered again stands: PASS / FAIL)
+    f5_hs_pstopN      (WO53) STOP alone and behind each prefix, released by NMI: the pushed PC STOP + 2
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import dma, periph, serial
+from . import dma, intr, periph, serial
 from .intr import PSW_IE, ev
 from .periph import PTest, _prog
 from .serial import rd, swr
@@ -103,17 +108,101 @@ def programs():
             progs[p.name] = p
     for p in progs.values():
         p.results.append((serial.RES, 0x20 * len(p.tests)))
+    progs.update(pf_programs())
     return progs
+
+
+# ------------------------------------------------------------------ (WO53) a prefix in front of HALT / STOP
+# A HALT that has been entered is a completed instruction: a take out of its loop pushes the offset behind HALT
+# whatever prefix stood in front of it (silicon: build/overseer/int-rows4 section 5, f5_lg_a19, DS1: HALT and NMI,
+# all 16 windows), and the return does not enter HALT again. The tests are intr.py's (the logging handler: every
+# take's pushed PC, its vector and the test's number); the check reads the log against the label on HALT.
+PFX = {"ds1": 0x26, "ps": 0x2E, "ss": 0x36, "ds0": 0x3E, "rep": 0xF3, "repne": 0xF2, "lock": 0xF0}
+PF_SRC = {"n1": ("NMI", intr.PSW_IE), "n0": ("NMI", intr.PSW0), "i1": ("INTP0", intr.PSW_IE)}
+PF_N, PF_D0, PF_STEP = 24, 2400, 24     # tests a program; the edge behind the event's OUT (ticks; from 2400 HALT is entered), its step
+PF_LIMIT = 8_000_000                    # ticks: a program ends inside 3,000,000 (a re-entered HALT stands for good)
+ST_LIMIT = 98_000_000                   # a STOP program: 2^19 clocks (16.8M ticks) of settling a release, four tests
+ST_KEYS = ((None, "ds1", "ps", "ss"), ("ds0", "rep", "repne", "lock"))     # the harness's wait budget is 100M ticks
+
+
+def pf_tests(pfx, src):
+    pin, psw = PF_SRC[src]
+    T = []
+    for j in range(PF_N):
+        pre = (intr.sfr_wr("EXIC0", 0x07) if pin == "INTP0" else "") + intr.ev("E0")
+        T.append(intr.Test(f"{src}_d{PF_D0 + PF_STEP * j}", pre=pre, psw=psw,
+                           code=f"    DB {PFX[pfx]:02X}h\n    HALT\n",
+                           stim=[intr.pulse("E0", pin, delay=PF_D0 + PF_STEP * j)]))
+    return T
+
+
+def st_tests(keys):
+    """STOP with no prefix and behind each prefix, released by NMI (IE 1): the release's E pops the instruction
+    behind STOP, whose start takes NMI (urom/xfer_stop.uasm): the pushed PC is STOP + 2."""
+    T = []
+    for key in keys:
+        code = ("" if key is None else f"    DB {PFX[key]:02X}h\n") + "stp{k}:\n    DB 0Fh, 9Eh\n"
+        T.append(intr.Test(f"stop_{key or 'none'}", pre=intr.ev("E0"), psw=intr.PSW_IE, code=code,
+                           stim=[intr.pulse("E0", "NMI")]))
+    return T
+
+
+def pf_programs():
+    progs = {}
+    for pfx in PFX:
+        for src in PF_SRC:
+            p = intr.make_program(f"f5_hs_pf{pfx}{src}", pf_tests(pfx, src), gate=False,
+                                  note=f"{pfx} prefix in front of HALT; {PF_SRC[src][0]} swept, PSW {PF_SRC[src][1]:04X}")
+            p.p0, p.pf = 0, True
+            progs[p.name] = p
+    for i, keys in enumerate(ST_KEYS):
+        p = intr.make_program(f"f5_hs_pstop{i}", st_tests(keys), gate=False, note="STOP behind a prefix; NMI")
+        p.p0, p.pf = 0, True
+        progs[p.name] = p
+    return progs
+
+
+def pf_check(n, rec, prog):
+    """One line: per test the take of the test's source (NMI: vector 2; INTP0: 24): exactly one, its pushed PC
+    behind HALT (HALT + 1; a maskable request may be taken one NOP later, behind the instruction the release ran:
+    HALT + 2) or behind STOP (STOP + 2); the run not timed out."""
+    count, entries, _ = intr.decode(rec)
+    labels = intr.labels_of(prog)
+    bad, kinds = [], {}
+    for k, t in enumerate(prog.tests):
+        if t.name.startswith("stop_"):
+            vec, at, ok_d = 2, labels[f"stp{k}"], (2,)
+        else:
+            vec = 24 if t.name.startswith("i1") else 2
+            at, ok_d = labels[f"hlt{k}"], ((1, 2) if vec == 24 else (1,))
+        mine = [e for e in entries if e["test"] == k and e["vec"] == vec]
+        if len(mine) != 1:
+            bad.append(f"{t.name}: {len(mine)} takes")
+            continue
+        d = (mine[0]["pc"] - at) & 0xFFFF
+        if d not in ok_d:
+            d = d - 0x10000 if d & 0x8000 else d
+            bad.append(f"{t.name}: pc {'STOP' if t.name.startswith('stop_') else 'HALT'}{d:+d}")
+            continue
+        kinds[d] = kinds.get(d, 0) + 1
+    good = not rec["timeout"] and not bad and count <= 0x3F
+    pcs = " ".join(f"+{d} x{c}" for d, c in sorted(kinds.items()))
+    print(f"{n}: {'PASS' if good else 'FAIL'} timeout={rec['timeout']} tests {len(prog.tests) - len(bad)} of "
+          f"{len(prog.tests)} pushed PC {pcs}" + (f" (bad: {'; '.join(bad)})" if bad else ""))
+    return good
 
 
 def check(names, backend, progs):
     """A program is complete when its run ends inside the limit (no timeout: the program's end reached, so no
     test stood in HALT for good). Each test's end marker (55h at RES + 20h k + 18h) is listed as well, from the
     write sequence or the result region (a long program's trace is read in windows and a DMA program's windows
-    can differ in timing, so the markers are a cross-check, not the test)."""
+    can differ in timing, so the markers are a cross-check, not the test). (WO53) The prefix set: pf_check."""
     ok = True
     for n in names:
         rec = periph.load(n, backend)
+        if getattr(progs[n], "pf", False):
+            ok &= pf_check(n, rec, progs[n])
+            continue
         nt = len(progs[n].tests)
         reg = bytes.fromhex(rec["regions"][f"{serial.RES:05X}"])
         wr = {w[0] for w in rec["writes"] if w[1] == 0x55}
@@ -136,7 +225,9 @@ def main():
     names = a.names or list(progs)
     if a.action == "sim":
         dma._with_dma_reads()
-        periph.run_set(names, "sim", a.tag, progs)
+        for n in names:     # (WO53) the prefix set's runs bounded (a HALT entered again stands for good)
+            lim = (ST_LIMIT if n.startswith("f5_hs_pstop") else PF_LIMIT) if getattr(progs[n], "pf", False) else 40_000_000
+            periph.run_set([n], "sim", a.tag, progs, limit=lim)
         return 0
     return 0 if check(names, "sim" + a.tag, progs) else 1
 

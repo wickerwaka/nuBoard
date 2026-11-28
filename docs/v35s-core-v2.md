@@ -4917,3 +4917,46 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   (3) land `s3` alone or hold it for the whole candidate; (4) the intc to loader wire for
   P7; (5) the microword mark for source a; (6) +1.466 ns or the registered grant first;
   (7) the PUSH windows.
+- **2026-11-27, work order 53 landed (build/overseer/wo53; gate land53 against land52,
+  land53 is the baseline now): a prefix in front of HALT, and the write of OUT in front
+  of HALT.** (1) The prefix's E word sets the EU's `pist_v`; HALT's routine has no E word,
+  so a take straight out of the loop pushed the prefix's offset and the return ran the
+  prefix and HALT again. Any halt word now clears `pist_v` (v35_eu): the push is the
+  loader's ins_ip, HALT + 1, behind every prefix (four segment prefixes, REP, REPNE,
+  BUSLOCK); a string's take point has no halt word and is unchanged; STOP leaves through
+  its release's E word and is unchanged. f5_lg_a19's pushed PC is HALT + 1 in 16 of 16
+  windows (8 landed). (2) Rule 11's hold (`rq_hd`: a request posted while HALT's opcode
+  is released is granted a clock later) now holds only for a post whose word did not
+  wait (`ex_w`, a register of whether the last clock's word executed): the rule's
+  specification moves the cycle's due clock by one, and a post word that waited for a
+  running cycle is already past it. OUT 80h,AW ; HALT's I/O write is on silicon's clock
+  in 16 of 16 windows; with the hold removed altogether the corpus has no exact run (its
+  END is OUT DW,AW ; HALT, a fresh post). No microcode, port or budget change. Gate:
+  corpus 30,385 of 30,536 with 0 rows and 0 pin records different, writes 106,824 of
+  106,824; every program, fuzz, probe, store and haltsweep line of land52 identical;
+  haltsweep 23 new lines (f5_hs_pf{ds1,ps,ss,ds0,rep,repne,lock}{n1,n0,i1},
+  f5_hs_pstop0 / 1), all PASS; introws2 now over 132 sets, 1,195 of 3,324 windows equal
+  (1,187 on the landed core; the 8 gained are f5_lg_a10's); timing +2.670 / +2.657 /
+  +2.879 ns, 9,857 LUT4, 569 ADD, 2,715 FF, 36 RAM_5K. OPEN: the new haltsweep cases are
+  simulation only (no socket row of a prefix other than DS1 in front of HALT, nor of
+  STOP behind a prefix); a DMA transfer or macro service out of a prefixed HALT now
+  refetches HALT's own offset (before: the prefix's less one), not measured; f5_lg_a19
+  stays 0 of 16 and f5_lg_a10 8 of 32 on the open take phase out of HALT (R / H1).
+- **2026-11-27, closing state (work wrapped up on the user's word; no agent running, the
+  board powered down).** Landed: work orders up to 53; baseline build/overseer/land53
+  (gate scripts build/overseer/gate/, gitignored). Corpus RTL-exact 30,385 of 30,536,
+  the 151 by family: F30 59 and F24 30 (block instructions, all one clock short), F19
+  16, F33 10, F26 9, F20 6, F34 6, F21 4, F22 4, F25 3, F15 2, F29 2. Open, with where
+  the notes are (all under build/overseer/): the controller's bus cycle (the grant) and
+  the take side out of HALT (R, N, H2, entry time, P7): int-design5/DESIGN-INT5.md is
+  the latest and lists seven questions for the user, among them landing its loss-free
+  part lossfree.diff alone; earlier int-design .. int-design4, take-design; socket rows
+  int-rows .. int-rows4 (tools validation/v35s/introws.py, introws2.py). CLKOUT's
+  restart out of STOP half a clock off (the core's divider does not stop): wo51/NOTES.md.
+  /HLDAK's rise one clock early at one HLDRQ phase, the chained fetch's cut-off under
+  HLDRQ, f4_tm tm0_md's fourth period (accepted with H1): wo52/NOTES.md. The corpus's
+  block instructions (P11), P12, group K, the commit word under READY, REP CMPBK and
+  PREPARE at RAMEN 0, far [d16]'s third word: the Record entries above. Rulings in force
+  for the next round: no decode bit of the staged opcode in the pending term (source c);
+  source d left out; the grant is held until f4_tm's write stream is kept; the port
+  budget is raised by the user only.

@@ -101,7 +101,8 @@ module v35_eu
     // (the boundary's E_PEND)
     output wire        rqm_nx,
     // (qprobe rule 11) HALT's opcode released and HALT not yet run (the loader's ce_b register):
-    // a request posted now is granted a clock later (the port's level held low a clock)
+    // a request posted now is granted a clock later (the port's level held low a clock; (WO53)
+    // by a post word that did not wait: `ex_w`)
     input  wire        hp_b,
     // to the sequencer (registers; rb_lo tick B)
     output wire        opr_rdy,
@@ -251,8 +252,19 @@ module v35_eu
     reg        rq_v = 1'b0, rq_word = 1'b0, rq_pair = 1'b0, rq_out = 1'b0, rq_rd = 1'b0;
     reg        rq_wr = 1'b0, rq_io = 1'b0, opr_v = 1'b0;
     // (qprobe rule 11) the request posted while HALT was released: the port's level held low
-    // on the clock after the post (the grant a clock later)
+    // on the clock after the post (the grant a clock later). (WO53) Only for a post whose word
+    // did not wait (`ex_w`: the last clock's word executed, so this word is fresh). The rule's
+    // specification (validation/v35s/qprobe/model.py HALT_HOLD) holds the cycle's due clock, the
+    // request word X + 4, by one; the post word's next clock is that due clock only when the
+    // post word ran without waiting (OUT imm8's post-E word at X + 3, OUT DW's G at X + 3). A
+    // post word that waited (the boundary's wait for a cycle running, rule 4a / 7; G's for the
+    // bus, rule 10; the slot) runs on that cycle's last clock or later, so the due clock plus
+    // one is already behind it and the request goes on the next clock (the cycle it waited for
+    // has used up the held clock). Silicon: int-rows4 section 5, OUT 80h,AW ; HALT (f5_lg_a10
+    // `out`, a fetch started on OUT's E clock): the I/O write on HALT's first clock, all 16
+    // windows; the corpus's END (OUT DW,AW ; HALT, G fresh) keeps the held clock
     reg        rq_hd = 1'b0;
+    reg        ex_w = 1'b1;
     reg [1:0]  rq_cyc = RQ_MEMR;
     reg [19:0] rq_addr = 20'd0;
     reg [15:0] rq_off = 16'd0, opr = 16'd0;
@@ -893,7 +905,7 @@ module v35_eu
     // write is posted on the word before K (k_nx), where the term is 0 either way: the same
     // value on every clock (`+v35_chk`: a MEMWD post with the next word not K is reported)
     wire        rq_unv_nx = post ? (word.bus == BQ_MEMWD) : (ex_b && k_cur) ? 1'b0 : rq_un;
-    assign req_v_nx = rq_v_nx && !(post && hp_b) && !(rq_unv_nx && !k_nx);
+    assign req_v_nx = rq_v_nx && !(post && hp_b && ex_w) && !(rq_unv_nx && !k_nx);
     wire        rq_out_nx = post ? 1'b1 : (req_done && rq_out) ? 1'b0 : rq_out;
     wire        rq_rd_nx = post ? b_rd : rq_rd;
     wire        rq_wr_nx = post ? (b_mw || word.bus == BQ_IOW) : rq_wr;
@@ -1056,7 +1068,14 @@ module v35_eu
                     // stale start)
                     if ((word.pfx || word.ea == EA_REP) && !pist_v)
                         pist <= ins_ip[1:0];
-                end
+                end else if (word.halt)
+                    // (WO53) a HALT that has been entered is a completed instruction: its halt
+                    // word drops the prefixes' start, so a take out of the loop (`halt redisp`,
+                    // intr's ist) pushes the loader's ins_ip, the offset behind HALT (its hw_b
+                    // load), whatever prefix stood in front (silicon, int-rows4 section 5:
+                    // DS1: HALT, NMI, HALT + 1 in all 16 windows of f5_lg_a19). A string's take
+                    // point has no halt word: its re-entry at the first prefix is unchanged
+                    pist_v <= 1'b0;
                 if (word.pfx) begin
                     if (word.ea == EA_REP) begin
                         pfx_v <= 1'b1;
@@ -1075,7 +1094,8 @@ module v35_eu
                 pfx_c <= word.e && !word.pfx && !fmt.seg[2] && word.ea != EA_REP && !ramen_a;
             end
             // the request
-            rq_hd <= post && hp_b;
+            rq_hd <= post && hp_b && ex_w;     // (WO53) a fresh post word only (ex_w above)
+            ex_w <= ex_b;
             // (round 18, A1) the announcement: from the reserving word to the post
             if (rsv_w)
                 rq_rs <= 1'b1;

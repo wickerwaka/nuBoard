@@ -10376,3 +10376,36 @@ condition codes and NT pages unchanged; no port budget row changed. P6 (the cont
   behind /HLDAK's rise as on silicon (the rise itself is one clock early: open, see build/overseer/wo52/NOTES.md).
 - `introws2 gate` (new): every set against the socket; the B.2 sets window by window against one-window runs
   (`sim1`, bounded), fetch addresses and the pushed PC relative to the window's HALT.
+
+## Work order 53: a prefixed HALT is a completed instruction; rule 11's held clock only for a fresh post
+
+- **DS1: HALT (int-rows4 section 5, f5_lg_a19: silicon pushes HALT + 1 in all 16 windows).** The core pushed the
+  prefix's offset in 8 of 16 (the take straight out of the loop, `halt redisp` into intr) and entered HALT again
+  on the return. Cause: the prefix's E word sets the EU's `pist_v` (the prefixes' start, F4q), and HALT's routine
+  has no E word to clear it, so intr's `ist` read `sist` (the first prefix's offset) instead of the loader's
+  `ins_ip` (the offset behind HALT, loaded on the halt word since WO50). The other 8 windows left through B's
+  release E, which clears it. **Built (v35_eu):** a halt word clears `pist_v` (`else if (word.halt)` beside the
+  E word's load): a HALT that has been entered is a completed instruction whatever prefix stood in front. A
+  string's take point has no halt word, so the F4q re-entry at the first prefix is unchanged (pfxtake). STOP's
+  words are halt words too, but STOP is left only through its release's E (the take at the next instruction's
+  start), so nothing there reads the bit. A DMA transfer or macro service out of a prefixed HALT (dm_h / ms:
+  MSPC, ist - 1) now refetches HALT's own offset; before it refetched the prefix's offset less one (not measured).
+- **haltsweep's prefix set (simulation only):** `f5_hs_pf{ds1,ps,ss,ds0,rep,repne,lock}{n1,n0,i1}` (each prefix in
+  front of HALT; NMI with IE 1, NMI with IE 0, INTP0 with IE 1; the edge swept over 18 clocks in 0.75-clock steps
+  from inside HALT) and `f5_hs_pstop0` / `pstop1` (STOP alone and behind each prefix, NMI). intr.py's logging
+  handler records every take; `haltsweep check` requires one take of the source a test, its pushed PC HALT + 1
+  (INTP0 also HALT + 2: taken behind the NOP B's release ran) or STOP + 2, and no timeout (a HALT entered again
+  stands for good: the runs are bounded). On f7e9b8e the four segment prefixes and BUSLOCK fail the NMI programs
+  (the prefix's offset, then HALT for good); REP / REPNE, INTP0 and STOP pass; now all pass.
+- **OUT 80h,AW ; HALT (int-rows4 section 5, f5_lg_a10 `out`: silicon's I/O write on HALT's first clock, the core's
+  a clock later, all 16 windows).** A fetch starts on OUT's E clock (X + 2); the post-E word (the dispatch) waits
+  on X + 3 for it (rule 4a / 7) and posts on the fetch's last clock; rule 11's hold (`rq_hd`, HALT's opcode
+  released) then kept the request off the next clock, so the I/O write came a clock behind the bus going free.
+  Rule 11's specification (validation/v35s/qprobe/model.py HALT_HOLD) holds the cycle's due clock (the request word
+  X + 4) by one, and a cycle due while the bus is busy starts when it frees; the core's post word reaches that due
+  clock only when it ran without waiting. **Built (v35_eu):** `rq_hd` (and the port level's next value) only for a
+  post whose word did not wait (`ex_w`: the last clock's word executed). A post word that waited runs on the
+  cycle's last clock or later, behind the held due clock; the corpus's END (OUT DW,AW ; HALT, G fresh) keeps the
+  held clock. Not an OUT or HALT case of its own: the same register reads every post.
+- **Result:** f5_lg_a10's `out` I/O writes on silicon's clock in all 16 windows; the corpus unchanged (30,385,
+  every run's rows as before); build/overseer/wo53/NOTES.md has every gate line.
