@@ -1,0 +1,28 @@
+; (WO54) Save state, part 1: the park and the resume (build/overseer/ss-design/DESIGN-SS.md sections
+; 2 and 3; the core README "Work order 54"). This file sorts last: no other routine's ROM address
+; moves. Function only: no clock here is fitted to silicon's (silicon has no save state).
+;
+; A save-state request (v35_top ss_req) is offered by the interrupt controller as the top-priority
+; take at the two take points and in HALT's take test (v35_intc `pk`): the dispatch enters ss_in
+; (UROM_SS: v35_useq's dispatch target with the controller's request), a string's take point
+; enters ss_in (a TKI0 word, in rep_brk's place) or ss_k (a TKI1 word, in si_cmp's place: the
+; overrun read's datum is outstanding there), HALT's `halt redisp` enters ss_in. The entry
+; records the restart PC in tmpa, waits for the bus to come to rest and executes the park word;
+; the ticks stop behind its ce_a (v35_ss `frz`), with ss_x standing. The resume (ss_req low)
+; restarts the ticks at the ce_b that was due; ss_x and the words behind it reload the segment
+; flops from the bank's slots, FLUSH to PS:tmpa and E: the instruction's real dispatch follows.
+routine ss_park why="(WO54) save state: the park and the resume; function only"
+ss_k: f susp                                ; (a REP compare's take point) F: the outstanding read's datum, dropped; SUSP: no fetch from here
+ss_in: susp d1=TC s1=PC ist                 ; SUSP; tmpc <- the instruction's start (its first prefix's; behind HALT out of HALT)
+    alu=MSPC ax=TC wid=WORD                 ; SIGMA <- the offset to restart at (the HALT's own when the take followed one)
+    d1=TA s1=SIG alu=NOT ax=ZERO wid=WORD   ; tmpa <- the restart PC (the state's PC word); SIGMA <- FFFFh
+    alu=SFRA ax=SIG wid=WORD                ; SIGMA <- 0FFFh: IDB's offset in the on-chip page
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=BYTE   ; post the read of IDB (on chip, no pin, no side effect): waits for the request slot
+    f                                       ; F: its datum, dropped: the last cycle ended, no hold at its grant, the slot empty
+    bi                                      ; B: no pin cycle of a fetch started earlier runs (none can start: SUSP)
+    wid=WORD                                ; a word with no act: one clock with no cycle (the bus unit's pend 0)
+    park                                    ; the park word: the ticks stop behind its ce_a (v35_ss frz), ss_x standing
+ss_x: wid=WORD                              ; stands while frozen (names no register, no act); the first word after the resume
+    d1=TB s1=TA d2=TC s2=TA                 ; the temporaries from the state (tmpb, tmpc <- the restart PC)
+    d1=ADDR s1=TA d2=OPRW s2=TA alu=PASS ax=TA wid=WORD   ; the address and write datum registers likewise; SIGMA <- the restart PC
+    jmp=sg_c                                ; (bank.uasm) the PS DS0 SS DS1 flops from the bank's slots, FLUSH to PS:SIGMA, E

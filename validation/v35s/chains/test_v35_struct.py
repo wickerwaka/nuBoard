@@ -149,7 +149,8 @@ BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "data
               # the loader's count next and this clock's releases, the queue's count and give-way
               # (consol) the pace's owner: the next word's kind, the word executing, the EU's
               # memory request standing next, the queue's count compares, the loader's stream facts
-              "eu_rq_nx", "wk_nx", "ex", "rqm_nx", "lv_q", "lv_nx", "sf_nx"}
+              "eu_rq_nx", "wk_nx", "ex", "rqm_nx", "lv_q", "lv_nx", "sf_nx",
+              "ss_a"}                                             # (WO54) the state port's index (v35_ss)
 # (step C) the queue's whole port list: the FIFO's ports (fetch, read, pop, control) and the
 # facts step C left in place (the tags, the head facts the loader's head select reads, the next
 # values); (step D) the legacy room inputs and outputs (rel, stg, abort_go, q_low, q_word,
@@ -368,6 +369,7 @@ CORE_INSTANCES = {
     "eu": (V35 / "v35_eu.sv", "v35_eu"),
     "regram": (V35 / "v35_regram.sv", "v35_regram"),
     "intc": (CORE / "v35_sfr.sv", "v35_intc"),
+    "ss": (V35 / "v35_ss.sv", "v35_ss"),    # (WO54) save state: the freeze (and the state port)
 }
 # ceilings at step D's hand-back (step B's and C's were bus 26/16, queue 19/11, loader 38/35,
 # useq 20/50, eu 36/39, regram 3/13, intc 14/14: 156 outputs, 178 inputs; step D's 129 / 146).
@@ -401,13 +403,14 @@ CORE_INSTANCES = {
 # next-value outputs
 # psw_ie_r: allowed by the user 2026-11-21 (eu out 36 -> 37, intc in 14 -> 15, eu -> intc 3 -> 4)
 BUDGET_MODULE = {
-    "bus": {"out": 18, "in": 17},     # wl_b (WO49, group C): allowed by the user 2026-11-25
+    "bus": {"out": 19, "in": 18},     # wl_b (WO49, group C): allowed by the user 2026-11-25; (WO54) ss_q, ss_a: save state
     "queue": {"out": 16, "in": 11},
     "loader": {"out": 28, "in": 37},  # wl_b (WO49, group C): allowed by the user 2026-11-25
-    "useq": {"out": 24, "in": 28},    # w_fa (WO47): allowed by the user 2026-11-24
-    "eu": {"out": 37, "in": 39},      # psw_ie_r: allowed by the user 2026-11-21; w_fa (WO47) 2026-11-24
-    "regram": {"out": 3, "in": 13},
-    "intc": {"out": 13, "in": 15},    # psw_ie_r: allowed by the user 2026-11-21
+    "useq": {"out": 25, "in": 29},    # w_fa (WO47): allowed by the user 2026-11-24; (WO54) x_park, pk: save state
+    "eu": {"out": 38, "in": 40},      # psw_ie_r: allowed by the user 2026-11-21; w_fa (WO47) 2026-11-24; (WO54) ss_q, ss_a
+    "regram": {"out": 3, "in": 15},   # (WO54) frz, ss_a: save state (port C's read while frozen)
+    "intc": {"out": 15, "in": 17},    # psw_ie_r: allowed by the user 2026-11-21; (WO54) pk, ss_q; frz, ss_a: save state
+    "ss": {"out": 2, "in": 5},        # (WO54) save state (the user's ruling: its signals allowed): frz, ss_a; x_park, the words of eu, bus, intc, regram's oc_rd
 }
 BUDGET_PAIR = {
     ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 5, ("bus", "queue"): 4,  # bus -> loader 5: wl_b (WO49) 2026-11-25
@@ -415,7 +418,10 @@ BUDGET_PAIR = {
     ("eu", "bus"): 9, ("eu", "intc"): 4,  # psw_ie_r: allowed by the user 2026-11-21
     ("eu", "loader"): 2, ("eu", "queue"): 2,
     ("eu", "regram"): 8, ("eu", "useq"): 12, ("bus", "useq"): 1, ("useq", "bus"): 2,
-    ("intc", "eu"): 10, ("intc", "useq"): 3,
+    ("intc", "eu"): 10, ("intc", "useq"): 4,    # (WO54) pk: save state
+    ("ss", "intc"): 2, ("useq", "ss"): 1,       # (WO54) save state: frz, ss_a; x_park
+    ("ss", "eu"): 1, ("ss", "bus"): 1, ("ss", "regram"): 2,     # (WO54) ss_a (and frz to regram)
+    ("eu", "ss"): 1, ("bus", "ss"): 1, ("intc", "ss"): 1, ("regram", "ss"): 1,   # (WO54) the words; oc_rd
     ("loader", "bus"): 1, ("loader", "eu"): 14, ("loader", "queue"): 3, ("loader", "useq"): 12,
     ("queue", "bus"): 4, ("queue", "loader"): 12,
     ("regram", "bus"): 1, ("regram", "eu"): 2,

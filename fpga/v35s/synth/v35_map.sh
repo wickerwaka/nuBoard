@@ -55,7 +55,7 @@ map_one() {
         regram|v35_regram) top=v35_regram; files=(v35_regram.sv) ;;
         top|v35_top) top=v35_top
             files=(v35_bus.sv v35_queue.sv v35_loader.sv v35_useq.sv v35_ea.sv
-                   v35_eu.sv v35_regram.sv v35_trace.sv ../v35_sfr.sv ../v35_refresh.sv
+                   v35_eu.sv v35_regram.sv v35_trace.sv v35_ss.sv ../v35_sfr.sv ../v35_refresh.sv
                    v35_top.sv) ;;
         *) echo "unknown module $name" >&2; return 2 ;;
     esac

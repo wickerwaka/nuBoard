@@ -27,6 +27,6 @@ verilator --cc --exe --build -j 4 -Wno-fatal -Wno-lint -Wno-style --savable \
     "$v35_dir/v35_front_pkg.sv" "$v35_dir/v35_pkg.sv" "$v35_dir/v35_fn_pkg.sv" \
     "$v35_dir/v35_bus.sv" "$v35_dir/v35_queue.sv" "$v35_dir/v35_loader.sv" \
     "$v35_dir/v35_useq.sv" "$v35_dir/v35_ea.sv" "$v35_dir/v35_eu.sv" \
-    "$v35_dir/v35_regram.sv" "$v35_dir/v35_trace.sv" "$core_dir/v35_sfr.sv" \
+    "$v35_dir/v35_regram.sv" "$v35_dir/v35_trace.sv" "$v35_dir/v35_ss.sv" "$core_dir/v35_sfr.sv" \
     "$core_dir/v35_refresh.sv" "$v35_dir/v35_top.sv" \
     "$project_dir/v35_core2_tb.sv" "$project_dir/v35_core2_tb.cpp"

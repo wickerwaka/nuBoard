@@ -287,6 +287,8 @@ PAGE1_IMM = {**{o: 1 for o in _ranges("18-1F,39,3B,FF")}, 0x9C: 3}
 IO_OPS = set(_ranges("E4-E7,EC-EF,6C-6F"))
 IOT = "iot"
 INT = "intr"            # (F3) the interrupt entry: the dispatch's target when an interrupt is taken
+SS_IN = "ss_in"         # (WO54) the save-state park's entry (UROM_SS)
+SS_K = "ss_k"           # (WO54) ... from a TKI1 take point (UROM_SSK: the overrun's datum first)
 
 
 def imm_modrm(op: int, reg: int) -> int:
@@ -496,6 +498,15 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 # CH_BNEXT marks): vk alone on a plain word (a LOOP word: E on the loop's exit
                 # only), nb on a bus-idle word (bi)
                 fields["_ee"] = 1
+            elif k == "park":
+                # (WO54, the core README "Work order 54") the park word of the save-state routine
+                # (zz_ss.uasm): the ticks stop behind its ce_a (v35_ss frz). No word bit: a free code
+                # of the Y table, SUSP with IST on a word that reads no PC (every other IST word moves
+                # the PC through Y: checked below), the sequencer's one-bit flop beside the word
+                # (v35_useq x_park, from v35_l40_ypark of the table address)
+                fields["susp"] = 1
+                fields["ist"] = 1
+                fields["_park"] = 1
             elif k in ("fa", "p1", "p0", "er"):
                 # (WO47, the core README "WO47") three marks RAMEN reads (v35_useq fa_c, e_pm):
                 #   fa  the access wait: an F word that takes nothing; with RAMEN 1 it waits for its
@@ -521,6 +532,16 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 fields[k] = 1
             else:
                 raise UasmError(f"{path}:{ln}: unknown flag {tok!r}")
+    pc = enum_value("v35_src_e", "pc")
+    if fields.pop("_park", 0):
+        if any(fields.get(k) for k in ("d1", "s1", "d2", "s2", "wr", "ws", "ea", "bus", "seg", "pfx", "halt",
+                                        "seq", "e", "f", "nb", "bi", "vk", "ro", "rl", "flush", "pop", "cnt")) \
+                or pc in (fields.get(k) for k in ("ax", "ay")) or "tgt" in fields:
+            raise UasmError(f"{path}:{ln}: park is a plain word's mark: no move, write, post, segment, prefix, "
+                            "halt, sequencing, wait, release, pop, count or PC source")
+    elif fields.get("ist") and pc not in (fields.get(k) for k in ("s1", "s2", "ws")):
+        raise UasmError(f"{path}:{ln}: ist moves the PC through a Y source (s1, s2, ws): SUSP with IST and "
+                        "no Y PC source is the park's code (WO54)")
     if fields.pop("_strict", 0) and (fields.get("rl") != 2):
         raise UasmError(f"{path}:{ln}: strict is the bus-idle word that releases a word-wide "
                         "operand (rl=2)")
@@ -1128,6 +1149,9 @@ _TGT_ADDR = {"jmp", "jc", "jnc", "call", "loop", "eac", "tki"}    # tgt is an ad
 _FT_FORCED = {"jc", "jnc", "call", "loop", "eac", "tki", "trap"}   # upc + 1 is a successor
 _SR_VEC = ENUMS["v35_src_e"][1].get("SR_VEC")
 SHARE_PINNED = ("rep_p",)        # routines whose entry word's address is read (UROM_REPP)
+# (WO54) routines kept out of the sharing whole (every word its own, none shared, called or stored
+# in a run): the save-state park, added after the landed layout, so that no landed word moves
+SHARE_PINNED_WHOLE = ("ss_park",)
 MID_MAX = 48                     # (work order 25) the longest middle run considered
 
 
@@ -1514,6 +1538,9 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = Fal
     W = flat.words
     n = len(W)
     pinned = {flat.labels[x] for x in pinned_routines if x in flat.labels}
+    for r in flat.routines:
+        if r.name in SHARE_PINNED_WHOLE:
+            pinned |= set(range(flat.labels[r.name], flat.labels[r.name] + len(r.words)))
     bad = (arming_words(W, _succs) | set(noj)) if l40 else set()
 
     def notgt(x):
@@ -2204,22 +2231,12 @@ def l40_program(prog) -> "Program":
     return out
 
 
-def l40_pack(prog, strict: bool = True) -> L40Image:
-    """The L40 image of the shared program: tables, packed words, the round trip checked. With
-    `strict` a word that does not fit raises UasmError naming it; else `misfits` lists them
-    ((address, routine words, reason))."""
-    img = L40Image(prog)
-    W = prog.words
-    fs = [w.fields for _, w in W]
-    for f in fs:
-        if _SQN[f.get("seq", 0)] == "tki" and f.get("tgt", 0) not in img.tki:
-            img.tki.append(f.get("tgt", 0))
-    arm = arming_words(W, _succs)
-    img.arming = arm
-    # the table demand: the pages first (R with X and Y, NT), then the full codes
+def _l40_demand(img, prog, afs: list) -> None:
+    """The tables' entries for the words `afs` ((address, fields)): the pages first (R with X and
+    Y, NT), then the full codes (l40_pack's, (WO54) one round of it)."""
     need = []
     mcalls = getattr(prog, "mcalls", None) or set()
-    for a, f in enumerate(fs):
+    for a, f in afs:
         c = img.form(f)
         x, y = _xp(f), _yp(f)
         if c == "R" and any(x) and any(y):
@@ -2241,7 +2258,7 @@ def l40_pack(prog, strict: bool = True) -> L40Image:
         if not (img.xput(p, page) if t == "x" else img.yput(p, page)):
             img.lost.append((t, page, p))
     allp = {}
-    for f in fs:
+    for _, f in afs:
         for t, p in (("x", _xp(f)), ("y", _yp(f))):
             if any(p):
                 allp[(t, p)] = allp.get((t, p), 0) + 1
@@ -2252,6 +2269,27 @@ def l40_pack(prog, strict: bool = True) -> L40Image:
         elif t == "y" and not img.ywhere.get(int(_yposts(p)), {}).get(p):
             if not img.yput(p):
                 img.lost.append((t, None, p))
+
+
+def l40_pack(prog, strict: bool = True) -> L40Image:
+    """The L40 image of the shared program: tables, packed words, the round trip checked. With
+    `strict` a word that does not fit raises UasmError naming it; else `misfits` lists them
+    ((address, routine words, reason))."""
+    img = L40Image(prog)
+    W = prog.words
+    fs = [w.fields for _, w in W]
+    for f in fs:
+        if _SQN[f.get("seq", 0)] == "tki" and f.get("tgt", 0) not in img.tki:
+            img.tki.append(f.get("tgt", 0))
+    arm = arming_words(W, _succs)
+    img.arming = arm
+    # the table demand: the pages first (R with X and Y, NT), then the full codes. (WO54) In two
+    # rounds: the landed words', then the words of the routines kept out of the sharing whole
+    # (SHARE_PINNED_WHOLE: the save-state park), so that their payloads take the entries after
+    # the landed ones and no landed word's code moves
+    late = {a for a in range(len(W)) if W[a][0].name in SHARE_PINNED_WHOLE}
+    for rnd in (False, True):
+        _l40_demand(img, prog, [(a, f) for a, f in enumerate(fs) if (a in late) == rnd])
     for a, f in enumerate(fs):
         why = img.fit(f, a in arm)
         img.forms.append(img.form(f))
@@ -2364,6 +2402,9 @@ def l40_outputs(img: L40Image) -> dict:
     yall = img.ytab[0] + img.ytab[1]
     for nm, tab, names, pred, bits in (
             ("ysusp", yall, L40_YF, lambda d: d["susp"], 9),
+            # (WO54) the park word: SUSP with IST and no other Y field (parse_word's code)
+            ("ypark", yall, L40_YF, lambda d: d["susp"] and d["ist"]
+             and not any(d[k] for k in L40_YF if k not in ("susp", "ist")), 9),
             ("xivec", img.xtab, L40_XF, lambda d: d["alu"] == ENUMS["v35_alu_e"][1]["AL_IVEC"], 8),
             ("xfint", img.xtab, L40_XF, lambda d: d["alu"] == ENUMS["v35_alu_e"][1]["AL_FINT"], 8)):
         qs = entries(tab, pred, names)
@@ -2748,6 +2789,10 @@ def decode_svh(prog: Program) -> str:
          "    // (F3) the interrupt entry: the dispatch's target when the controller's request, NMI",
          "    // or the single step is taken at an instruction's start",
          f"    localparam logic [UADDR_W-1:0] UROM_INT = {UADDR_W}'d{prog.labels[INT]};",
+         "    // (WO54) the save-state park's entries (zz_ss.uasm): the dispatch's and a TKI0 word's target",
+         "    // with the controller's request (ss_in), a TKI1 word's (ss_k: the overrun's datum first)",
+         f"    localparam logic [UADDR_W-1:0] UROM_SS = {UADDR_W}'d{prog.labels.get(SS_IN, 0)};",
+         f"    localparam logic [UADDR_W-1:0] UROM_SSK = {UADDR_W}'d{prog.labels.get(SS_K, 0)};",
          "    // (MX1) the EA heads: the dispatch's call targets for a ModR/M memory cell (ea.uasm)"]
     for lab, pname in EA_HEADS.items():
         L.append(f"    localparam logic [UADDR_W-1:0] {pname} = {UADDR_W}'d{prog.labels.get(lab, 0)};")

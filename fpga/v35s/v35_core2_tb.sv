@@ -81,7 +81,10 @@ module v35_core2_tb
         .input_levels(REST_LEVELS), .a0, .a19, .a18_ube, .mux_address, .data_out, .mreq_n, .mstb_n,
         .iostb_n, .read_write, .refrq_n, .pins_in(24'd0), .pins(),
         // (work order 29) the load port idle: the table is preloaded below
-        .tt_we(1'b0), .tt_a(8'd0), .tt_d(8'd0)
+        .tt_we(1'b0), .tt_a(8'd0), .tt_d(8'd0),
+        // (work order 54) save state not used here
+        .ss_req(1'b0), .ss_parked(), .ss_addr(10'd0), .ss_din(16'd0), .ss_we(1'b0), .ss_rd(1'b0),
+        .ss_dout(), .ss_valid()
     );
     // (work order 29) the 1:1 translation table, bench stimulus (the core never initialises it):
     // the driver preloads each test's PSW from its vector, and the vectors' PSW has MD (bit 15)

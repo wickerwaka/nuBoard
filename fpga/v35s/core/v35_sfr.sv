@@ -112,7 +112,11 @@ module v35_sfr (
     // (WO51) STOP's CLKOUT: STOP's mark executes (the sequencer's x_stop, the stop state set: a
     // level read at ce_a), and the stop's NMI caught (v35_intc's st_nm, a ce_a register)
     input  wire        x_stop,
-    input  wire        st_nm
+    input  wire        st_nm,
+    // (work order 54) save state: the state port's index (v35_ss, registered) and the words of the
+    // SFR block and its peripherals (each a register, ORed here; 0 for any other index)
+    input  wire [9:0]  ss_a,
+    output wire [15:0] ss_q
 );
     localparam logic [7:0] PRC_RESET = 8'h4E;
     localparam logic [15:0] WTC_RESET = 16'hFFFF;
@@ -340,29 +344,32 @@ module v35_sfr (
     wire [2:0]  tf;
     wire        tbf;
     v35_timer timer (.clock, .reset_n, .ce_a, .we(p_we), .w_off(wo_b), .w_word(ww_b), .w_lo(data[7:0]),
-                     .w_hi(data[15:8]), .tm0, .md0, .tm1, .md1, .tmc0, .tmc1, .tout, .tf, .tfp);
-    v35_tbc tbc (.clock, .reset_n, .ce_a, .tb(prc[3:2]), .tbf);
+                     .w_hi(data[15:8]), .tm0, .md0, .tm1, .md1, .tmc0, .tmc1, .tout, .tf, .tfp,
+                     .ss_a, .ss_q(q_tm));
+    v35_tbc tbc (.clock, .reset_n, .ce_a, .tb(prc[3:2]), .tbf, .ss_a, .ss_q(q_tb));
     // (F4b) the serial channels (channel 0 with the I/O interface mode): SCM / SCC / BRG in the
     // storage; the stores of SCM and TxB, RxB's reads; RxD0/1, /CTS0/1 the input levels 9-12
     wire [7:0] rxb0, rxb1, sce0, sce1;
     wire       txd0, txd1, sck0, rsck0, rsck_oe0, rsck1, rsck_oe1, sck1;
     wire       sr0, st0, se0, sr1, st1, se1;
-    v35_serial #(.IO_MODE(1'b1)) ser0 (
+    // (WO54) the peripherals' state words (v35_ss_map.tsv)
+    wire [15:0] q_tm, q_tb, q_s0, q_s1, q_dm;
+    v35_serial #(.IO_MODE(1'b1), .SS_BASE(10'h032)) ser0 (
         .clock, .reset_n, .ce_a, .s_scm(p_we && wo_b == 8'h68), .v_scm(w_lo),
         .s_txb(p_we && wo_b == 8'h62), .v_txb(w_lo),
         .s_bg(p_we && (wo_b == 8'h69 || wo_b == 8'h6A)),
         .scm(st[8'h68]), .scc(st[8'h69]),
         .brg(st[8'h6A]), .rd_rxb(rd_go && rd_off[7:1] == 7'h30), .rxd_in(input_levels[9]),
         .cts_in(input_levels[11]), .rxb(rxb0), .sce(sce0), .txd(txd0), .sck(sck0), .rsck(rsck0),
-        .rsck_oe(rsck_oe0), .sr(sr0), .st(st0), .se(se0));
-    v35_serial #(.IO_MODE(1'b0)) ser1 (
+        .rsck_oe(rsck_oe0), .sr(sr0), .st(st0), .se(se0), .ss_a, .ss_q(q_s0));
+    v35_serial #(.IO_MODE(1'b0), .SS_BASE(10'h03A)) ser1 (
         .clock, .reset_n, .ce_a, .s_scm(p_we && wo_b == 8'h78), .v_scm(w_lo),
         .s_txb(p_we && wo_b == 8'h72), .v_txb(w_lo),
         .s_bg(p_we && (wo_b == 8'h79 || wo_b == 8'h7A)),
         .scm(st[8'h78]), .scc(st[8'h79]),
         .brg(st[8'h7A]), .rd_rxb(rd_go && rd_off[7:1] == 7'h38), .rxd_in(input_levels[10]),
         .cts_in(input_levels[12]), .rxb(rxb1), .sce(sce1), .txd(txd1), .sck(sck1), .rsck(rsck1),
-        .rsck_oe(rsck_oe1), .sr(sr1), .st(st1), .se(se1));
+        .rsck_oe(rsck_oe1), .sr(sr1), .st(st1), .se(se1), .ss_a, .ss_q(q_s1));
     // (F4c) DMA: DMAM's mode, W and EDMA live in v35_dma (read back from it); DMAC in the storage
     wire [7:0] dmam0, dmam1;
     wire [1:0] dic;
@@ -384,7 +391,7 @@ module v35_sfr (
                  .dmac0(st[8'hA0]), .dmac1(st[8'hA2]), .dmarq(input_levels[7:6]),
                  .take(dm_take), .tend(dm_tend), .tlast(dm_tlast), .rs(dm_rs || dl_go), .smp(dm_smp), .dmam0, .dmam1,
                  .dm_v, .dm_go, .tk_ch(dm_ch), .tk_in(dm_in), .tk_out(dm_out), .tk_w(dm_w),
-                 .tk_ps(dm_ps), .tk_pd(dm_pd), .dic);
+                 .tk_ps(dm_ps), .tk_pd(dm_pd), .dic, .ss_a, .ss_q(q_dm));
     // the IF bits raised: SEIC0 SRIC0 STIC0 (3-5), SEIC1 SRIC1 STIC1 (6-8), TMIC0-2 (9-11), (F4c)
     // DIC0-1 (12-13), TBIC (14)
     assign pf_set = {tbf, dic, tf, st1, sr1, se1, st0, sr0, se0, 3'd0};
@@ -621,6 +628,36 @@ module v35_sfr (
     end
 
 
+    // (work order 54) the state port's read side (v35_ss_map.tsv): this block's own words (003h bits
+    // 13:12, 020h-024h) and the byte store (100h-17Fh: word k = {st[2k + 1], st[2k]}, raw), each a
+    // registered select from the index and a registered word; the peripherals' words ORed in
+    reg        ss_v = 1'b0, ss_sv = 1'b0;
+    reg  [5:0] ss_i = 6'd0;
+    reg  [6:0] ss_si = 7'd0;
+    reg [15:0] ss_o = 16'd0, ss_s = 16'd0;
+    logic [15:0] ss_wd;
+    always_comb begin
+        ss_wd = 16'd0;
+        case (ss_i)
+            6'd3: begin ss_wd[12] = h1; ss_wd[13] = hrq; end
+            6'd32: begin ss_wd[7:0] = prc; ss_wd[15:8] = rfm; end
+            6'd33: begin ss_wd[15:0] = wtc; end
+            6'd34: begin ss_wd[7:0] = idb; ss_wd[11:8] = ck_sc; ss_wd[12] = sbf; ss_wd[13] = ck; ss_wd[14] = ck_off; ss_wd[15] = otout; end
+            6'd35: begin ss_wd[15:0] = pins[15:0]; end
+            6'd36: begin ss_wd[15:0] = pins[31:16]; end
+            default: ;
+        endcase
+    end
+    always @(posedge clock) begin
+        ss_v <= ss_a[9:6] == 4'd0;
+        ss_i <= ss_a[5:0];
+        ss_sv <= ss_a[9:7] == 3'd2;
+        ss_si <= ss_a[6:0];
+        ss_o <= ss_v ? ss_wd : 16'd0;
+        ss_s <= ss_sv ? {st[{ss_si, 1'b1}], st[{ss_si, 1'b0}]} : 16'd0;
+    end
+    assign ss_q = ss_o | ss_s | q_tm | q_tb | q_s0 | q_s1 | q_dm;
+
     initial poll_p14 = 1'b0;
     always_ff @(posedge clock)
         poll_p14 <= input_levels[5] && st[8'h09][4];
@@ -707,6 +744,9 @@ module v35_intc (
     input  wire        dm_go,
     input  wire        dm_v,
     input  wire        dm_ch,
+    // (WO54) save state: the request (v35_top's port) and the freeze (v35_ss's register)
+    input  wire        ss_req,
+    input  wire        frz,
     // (step B) the take (below): to the sequencer, the dispatch's and the string take point's
     // take and HALT's release; to the EU, the take at the dispatch and its parameters; to
     // v35_dma, the DMA take and the starts it samples at
@@ -730,7 +770,13 @@ module v35_intc (
     output reg  [14:0] ic_if,
     output reg  [7:0]  ispr,
     output reg  [4:0]  tk_vec,          // the vector of the last take (IVEC's)
-    output reg         st_nm            // (WO51) STOP's NMI caught (v35_sfr's CLKOUT gate: below)
+    output reg         st_nm,           // (WO51) STOP's NMI caught (v35_sfr's CLKOUT gate: below)
+    output reg         pk,              // (WO54) the save-state request held (`pk0`, below): the
+                                        //   sequencer's park targets
+    // (work order 54) save state: the state port's index (v35_ss, registered) and this module's
+    // word (a register, 0 for any other index)
+    input  wire [9:0]  ss_a,
+    output reg  [15:0] ss_q
 );
     reg         ms_v;                   // a macro-service request is pending
     reg  [2:0]  mc_ch;                  // the macro service's channel (the take's)
@@ -747,7 +793,7 @@ module v35_intc (
     // seen while stopped: f4_stop stop_intp, an INTP0 pulse in STOP leaves its IF 0); NMI's
     // keeps sampling (it releases STOP)
     reg         stp = 1'b0;
-    wire        frz = stp;
+    wire        stz = stp;              // (WO54: was `frz`, now the save state's freeze's name)
     wire        take_n, take_i, take_s, take_m;
 
     // the sources: (group rank, member) -> IC index and vector
@@ -825,7 +871,7 @@ module v35_intc (
     reg  [2:0] lvh = 3'b111;
     always_ff @(posedge clock) if (ce_b) lvh <= lvn[3:1];
     wire [3:0] edge_c = {((es[3:1] & lvh & ~lv[3:1]) | (~es[3:1] & ~lvh & lv[3:1]))
-                         & {3{!frz && !dv}}, nmi_e};
+                         & {3{!stz && !dv}}, nmi_e};
     always_ff @(posedge clock) begin
         if (!reset_n)
             nmi_h <= lvn[0];
@@ -952,7 +998,7 @@ module v35_intc (
             ms_dir <= 1'b0;
             ak_1 <= 1'b0;
         end else if (ce_a) begin
-            lv <= (frz || dv) ? {lv[3:1], lvn[0]} : {lvh, lvn[0]};
+            lv <= (stz || dv) ? {lv[3:1], lvn[0]} : {lvh, lvn[0]};
             if (take_n || take_i || take_s || take_m || take_d)
                 ak_1 <= 1'b0;
             else if (iack)
@@ -1426,7 +1472,32 @@ module v35_intc (
     // HALT's next offset pushed (f4_dma halt: the DIC1 handler returns after the HALT)
     reg  rs_hlt = 1'b0;
     wire g_d = dm_go || (ms_hlt && dm_v);
-    assign igo = !nb_r && (g_nd || g_m || g_d || g_i || g_s);
+    // (WO54, build/overseer/ss-design DESIGN-SS.md 2.1) the save-state request: `pk` (pk0) is ss_req
+    // registered at ce_a and held until the freeze (the host holds ss_req to ss_parked; held here so
+    // that HALT's take test and its `halt redisp` three words later agree whatever the host does in
+    // between), cleared by the freeze (v35_ss `frz`, on the raw clock: no ce_a runs while frozen);
+    // `pk1` is pk a clock later, as the sequencer's `pk_w` beside the word (the TKI word's target is
+    // formed from pk in tick B and registered with the word). The park is the top-priority take at a
+    // dispatch whose start is a boundary (`!nb_r`, as an interrupt's), at a string's take point (no
+    // nb_r rule, as an interrupt's: the restart is the first prefix) and in HALT's take test; no
+    // other take is strobed on it (`!pk1` on the take strobes) and the dispatch's own bookkeeping
+    // (the arms, the DMA samples, ms_hlt's and rs_hlt's clear) is not run for it (`pk_x`): the
+    // instruction's real dispatch comes after the resume. rs_hlt loads ms_hlt at the park's take
+    // (a park out of HALT restarts at the HALT, whose dispatch must then be no boundary)
+    reg  pk1 = 1'b0;
+    initial pk = 1'b0;
+    always @(posedge clock) begin
+        if (!reset_n || frz)
+            pk <= 1'b0;
+        else if (ce_a)
+            pk <= ss_req || pk;
+        if (!reset_n)
+            pk1 <= 1'b0;
+        else if (ce_a)
+            pk1 <= pk;
+    end
+    wire pk_x = pk1 && ((x_disp && !nb_r) || x_tki);    // the park is taken now
+    assign igo = !nb_r && (g_nd || g_m || g_d || g_i || g_s || pk1);
     // (F5e) a REP string's take point (a TKI word: urom/str.uasm, at an element's end when the
     // string goes on; silicon, intr.py f5_si_*): NMI or the maskable offer (IE 1 and armed: IE
     // as it stood at the string's own start) is taken there, whatever the start's `nb` (a
@@ -1459,15 +1530,15 @@ module v35_intc (
     // implies the matching term of igo at the dispatch. (The other choice, `halt redisp` falling back to B
     // when nothing is taken, needs a new sequencer target for a halt word's dispatch.)
     wire g_ih = ir_h && rq_c <= 4'd1 && ie_r && mi_arm;
-    assign sgo = halted ? (!nb_r && (g_n || g_ih)) : (g_n || g_it || g_m || g_d);
-    assign take_d = (x_disp && igo && g_d) || (x_tki && g_d);
-    assign take_n = (x_disp && igo && !g_d && g_nd_f) || (x_tki && !g_d && g_n);
-    assign take_m = (x_disp && igo && !g_d && !g_nd_f && g_m) || (x_tki && !g_d && !g_n && g_m);
-    assign dm_rs = x_disp && !take_d;           // (F4c) the CPU resumes: DIC's IF set here
-    assign dm_smp = (x_disp || x_tki) && !take_d;
-    assign take_i = (x_disp && igo && !g_nd_f && !g_m && !g_d && g_i)
-                    || (x_tki && !g_n && !g_m && !g_d && g_it);
-    assign take_s = x_disp && igo && !g_nd_f && !g_m && !g_d && !g_i;
+    assign sgo = halted ? (!nb_r && (g_n || g_ih || pk1)) : (g_n || g_it || g_m || g_d || pk1);
+    assign take_d = ((x_disp && igo && g_d) || (x_tki && g_d)) && !pk1;
+    assign take_n = ((x_disp && igo && !g_d && g_nd_f) || (x_tki && !g_d && g_n)) && !pk1;
+    assign take_m = ((x_disp && igo && !g_d && !g_nd_f && g_m) || (x_tki && !g_d && !g_n && g_m)) && !pk1;
+    assign dm_rs = x_disp && !take_d && !pk_x;          // (F4c) the CPU resumes: DIC's IF set here
+    assign dm_smp = (x_disp || x_tki) && !take_d && !pk_x;
+    assign take_i = ((x_disp && igo && !g_nd_f && !g_m && !g_d && g_i)
+                     || (x_tki && !g_n && !g_m && !g_d && g_it)) && !pk1;
+    assign take_s = x_disp && igo && !g_nd_f && !g_m && !g_d && !g_i && !pk1;
     // (F4c) the parameters from one place: a DMA take's channel in place of the macro service's
     assign ms_ch = tk_dm ? {2'b00, dm_ch} : mc_ch;
     initial begin
@@ -1487,10 +1558,16 @@ module v35_intc (
             tk_dm <= 1'b0;
             rs_hlt <= 1'b0;
         end else if (ce_a) begin
-            if (x_disp) begin
+            if (x_disp && !pk_x) begin
                 brk_arm <= brk;
                 mi_arm <= 1'b1;
             end
+            // (WO54) a park at a string's take point restarts the string at its first prefix, whose
+            // dispatch (after the resume) is no single-step boundary: no step is taken inside a
+            // string (one trap a string, after its last element), so the step's arm is dropped here
+            // and that dispatch loads it again from BRK (the arm the string's own dispatches load)
+            if (pk_x && x_tki)
+                brk_arm <= 1'b0;
             if (take_d)
                 tk_dm <= 1'b1;
             else if (take_n || take_m || take_i || take_s)
@@ -1522,14 +1599,14 @@ module v35_intc (
                 brk_arm <= 1'b0;
                 mi_arm <= 1'b0;
             end
-            if (take_d || take_m)
-                rs_hlt <= ms_hlt;
+            if (take_d || take_m || pk_x)
+                rs_hlt <= ms_hlt;   // ((WO54) and the park's take)
             else if (x_disp)
                 rs_hlt <= 1'b0;     // (WO38) to the routine's dispatch (its look may repeat)
             // (F4b) the stall of a HALT seen since the last start that was not a macro service's
             if (halted)
                 ms_hlt <= 1'b1;
-            else if (x_disp && !take_m && !take_d)
+            else if (x_disp && !take_m && !take_d && !pk_x)
                 ms_hlt <= 1'b0;
         end
     end
@@ -1538,7 +1615,7 @@ module v35_intc (
     // pending (nmi_v) counts 2^19 CPU clocks (`st_c`), then `st_rel` releases it (f4_stop: the
     // first cycle 2^19 + 38 clocks after NMI's edge; IE 1 or 0); the controller's wake (an
     // unmasked IF, INT), a macro service and DMA do not (f4_stop stop_intp); the INTP samplers
-    // hold (`frz`). The release pops the instruction after STOP, whose dispatch takes NMI. The
+    // hold (`stz`; `frz` before WO54). The release pops the instruction after STOP, whose dispatch takes NMI. The
     // count is its own 19-bit counter (not the time base's: its taps keep running, as measured
     // in HALT; the time base in STOP is not measured)
     reg  [18:0] st_c = 19'd0;
@@ -1572,6 +1649,34 @@ module v35_intc (
             st_nm <= 1'b0;
         else if (ce_a)
             st_nm <= (stp || x_stop) && (st_nm || edge_c[0] || nd != 4'd0 || nmi_p);
+    end
+    // (work order 54) the state port's read side (v35_ss_map.tsv, 010h-019h): the select registered
+    // from the index (v35_ss's `ss_a`), then the word (`ss_q`, 0 for any other index); no logic of
+    // the module reads either
+    reg        ss_v = 1'b0;
+    reg  [3:0] ss_i = '0;
+    logic [15:0] ss_wd;
+    always_comb begin
+        ss_wd = 16'd0;
+        case (ss_i)
+            4'd0: begin ss_wd[14:0] = ic_if; end
+            4'd1: begin ss_wd[7:0] = ispr; ss_wd[11:8] = lv; ss_wd[15:12] = sc; end
+            4'd2: begin ss_wd[3:0] = idl[0]; ss_wd[7:4] = idl[1]; ss_wd[11:8] = idl[2]; ss_wd[15:12] = nd; end
+            4'd3: begin ss_wd[3:0] = hw_c; ss_wd[7:4] = rq_c; ss_wd[11:8] = ir_i; ss_wd[15:12] = tk_i; end
+            4'd4: begin ss_wd[15:0] = st_c[15:0]; end
+            4'd5: begin ss_wd[2:0] = st_c[18:16]; ss_wd[7:3] = ir_vec; ss_wd[12:8] = tk_vec; ss_wd[15:13] = ir_l; end
+            4'd6: begin ss_wd[2:0] = tk_k; ss_wd[5:3] = tk_l; ss_wd[8:6] = tk_lv; ss_wd[11:9] = mc_ch; ss_wd[14:12] = ms_mode; ss_wd[15] = ms_dir; end
+            4'd7: begin ss_wd[1:0] = sl; ss_wd[2] = ak_1; ss_wd[3] = ak_q; ss_wd[4] = brk_arm; ss_wd[5] = dv; ss_wd[6] = eu_q; ss_wd[7] = fint_q; ss_wd[8] = hb; ss_wd[9] = i_wake; ss_wd[10] = ie_dq; ss_wd[11] = ie_e; ss_wd[12] = ie_q; ss_wd[13] = int_q; ss_wd[14] = ir_bs; ss_wd[15] = ir_h; end
+            4'd8: begin ss_wd[0] = ir_int; ss_wd[1] = mf; ss_wd[2] = mf_e; ss_wd[3] = mi_arm; ss_wd[4] = ms_hlt; ss_wd[5] = nb_r; ss_wd[6] = ne; ss_wd[7] = nmi_p; ss_wd[8] = nmi_v; ss_wd[9] = rs_e; ss_wd[10] = rs_hlt; ss_wd[11] = rs_k; ss_wd[12] = st_nm; ss_wd[13] = st_rel; ss_wd[14] = stp; ss_wd[15] = tk_bs; end
+            4'd9: begin ss_wd[0] = tk_dm; ss_wd[1] = tk_int; ss_wd[2] = tk_ms; end
+            default: ;
+        endcase
+    end
+    initial ss_q = 16'd0;
+    always @(posedge clock) begin
+        ss_v <= ss_a >= 10'(10'h010) && ss_a < 10'(10'h010 + 10);
+        ss_i <= 4'(ss_a - 10'(10'h010));
+        ss_q <= ss_v ? ss_wd : 16'd0;
     end
 `ifndef SYNTHESIS
     // (WO33) +v35_idbg=FILE: the scan's state on every CPU clock with an event (t counts ce_a
@@ -1654,7 +1759,11 @@ module v35_timer (
     output reg  [7:0]  tmc1,
     output wire        tout,
     output reg  [2:0]  tf,              // TMIC0-2's request (a ce_a strobe)
-    output wire [2:0]  tfp              // (WO50, P8) the count-out being made in this clock (tf's terms)
+    output wire [2:0]  tfp,             // (WO50, P8) the count-out being made in this clock (tf's terms)
+    // (work order 54) save state: the state port's index (v35_ss, registered) and this module's
+    // word (a register, 0 for any other index)
+    input  wire [9:0]  ss_a,
+    output reg  [15:0] ss_q
 );
     localparam logic [7:0] O_TM0 = 8'h80, O_MD0 = 8'h82, O_TM1 = 8'h88, O_MD1 = 8'h8A,
                            O_TMC0 = 8'h90, O_TMC1 = 8'h91;
@@ -1790,6 +1899,30 @@ module v35_timer (
             end
         end
     end
+    // (work order 54) the state port's read side (v35_ss_map.tsv, 028h-02Dh; the grid's phase gph and t128 are read from their copies, v35_bus's and v35_tbc's): the select registered
+    // from the index (v35_ss's `ss_a`), then the word (`ss_q`, 0 for any other index); no logic of
+    // the module reads either
+    reg        ss_v = 1'b0;
+    reg  [2:0] ss_i = '0;
+    logic [15:0] ss_wd;
+    always_comb begin
+        ss_wd = 16'd0;
+        case (ss_i)
+            3'd0: begin ss_wd[15:0] = tm0; end
+            3'd1: begin ss_wd[15:0] = md0; end
+            3'd2: begin ss_wd[15:0] = tm1; end
+            3'd3: begin ss_wd[15:0] = md1; end
+            3'd4: begin ss_wd[7:0] = tmc0; ss_wd[15:8] = tmc1; end
+            3'd5: begin ss_wd[2:0] = tf; ss_wd[3] = q; ss_wd[4] = s0; ss_wd[5] = s1; ss_wd[6] = sm; ss_wd[7] = h12; ss_wd[8] = k128; end
+            default: ;
+        endcase
+    end
+    initial ss_q = 16'd0;
+    always @(posedge clock) begin
+        ss_v <= ss_a >= 10'(10'h028) && ss_a < 10'(10'h028 + 6);
+        ss_i <= 3'(ss_a - 10'(10'h028));
+        ss_q <= ss_v ? ss_wd : 16'd0;
+    end
 endmodule
 
 // (F4) The time base counter: 20 bits at the CPU clock from reset; PRC TB1-0 picks the tap
@@ -1799,7 +1932,11 @@ module v35_tbc (
     input  wire        reset_n,
     input  wire        ce_a,
     input  wire [1:0]  tb,
-    output reg         tbf
+    output reg         tbf,
+    // (work order 54) save state: the state port's index (v35_ss, registered) and this module's
+    // word (a register, 0 for any other index)
+    input  wire [9:0]  ss_a,
+    output reg  [15:0] ss_q
 );
     reg [19:0] c = 20'd0;
     initial tbf = 1'b0;
@@ -1816,6 +1953,26 @@ module v35_tbc (
                 default: tbf <= &c;
             endcase
         end
+    end
+    // (work order 54) the state port's read side (v35_ss_map.tsv, 030h-031h): the select registered
+    // from the index (v35_ss's `ss_a`), then the word (`ss_q`, 0 for any other index); no logic of
+    // the module reads either
+    reg        ss_v = 1'b0;
+    reg  [0:0] ss_i = '0;
+    logic [15:0] ss_wd;
+    always_comb begin
+        ss_wd = 16'd0;
+        case (ss_i)
+            1'd0: begin ss_wd[15:0] = c[15:0]; end
+            1'd1: begin ss_wd[3:0] = c[19:16]; ss_wd[4] = tbf; end
+            default: ;
+        endcase
+    end
+    initial ss_q = 16'd0;
+    always @(posedge clock) begin
+        ss_v <= ss_a >= 10'(10'h030) && ss_a < 10'(10'h030 + 2);
+        ss_i <= 1'(ss_a - 10'(10'h030));
+        ss_q <= ss_v ? ss_wd : 16'd0;
     end
 endmodule
 /* verilator lint_on DECLFILENAME */
@@ -1851,7 +2008,8 @@ endmodule
 //             cleared by a read; an RxB read (`rd_rxb`: the on-chip read cycle of RxB, also macro
 //             service's) empties the buffer. RxB is not reset (silicon keeps it through reset)
 /* verilator lint_off DECLFILENAME */
-module v35_serial #(parameter bit IO_MODE = 1'b1) (
+module v35_serial #(parameter bit IO_MODE = 1'b1,
+                    parameter logic [9:0] SS_BASE = 10'h032) (     // (WO54) the channel's state words
     input  wire        clock,
     input  wire        reset_n,
     input  wire        ce_a,
@@ -1874,7 +2032,11 @@ module v35_serial #(parameter bit IO_MODE = 1'b1) (
     output wire        rsck_oe,         // ... while it drives it
     output reg         sr,              // the SRIC / STIC / SEIC requests (ce_a strobes)
     output reg         st,
-    output reg         se
+    output reg         se,
+    // (work order 54) save state: the state port's index (v35_ss, registered) and this module's
+    // word (a register, 0 for any other index)
+    input  wire [9:0]  ss_a,
+    output reg  [15:0] ss_q
 );
     // the inputs, two flops (asynchronous to the core)
     reg [1:0] rx_s = 2'b11, ct_s = 2'b11;
@@ -2095,6 +2257,31 @@ module v35_serial #(parameter bit IO_MODE = 1'b1) (
             end
         end
     end
+    // (work order 54) the state port's read side (v35_ss_map.tsv, SS_BASE + 0 .. 6): the select registered
+    // from the index (v35_ss's `ss_a`), then the word (`ss_q`, 0 for any other index); no logic of
+    // the module reads either
+    reg        ss_v = 1'b0;
+    reg  [2:0] ss_i = '0;
+    logic [15:0] ss_wd;
+    always_comb begin
+        ss_wd = 16'd0;
+        case (ss_i)
+            3'd0: begin ss_wd[15:0] = rc[15:0]; end
+            3'd1: begin ss_wd[15:0] = tc[15:0]; end
+            3'd2: begin ss_wd[1:0] = rc[17:16]; ss_wd[3:2] = tc[17:16]; ss_wd[6:4] = rs; ss_wd[10:7] = rn; ss_wd[14:11] = tn; ss_wd[15] = rbf; end
+            3'd3: begin ss_wd[8:0] = rsh; ss_wd[11:9] = rerr; ss_wd[12] = ct_l; ss_wd[13] = rx_l; ss_wd[14] = rsck; ss_wd[15] = sck; end
+            3'd4: begin ss_wd[7:0] = rxb; ss_wd[15:8] = tb; end
+            3'd5: begin ss_wd[11:0] = tsh; ss_wd[12] = se; ss_wd[13] = sr; ss_wd[14] = st; ss_wd[15] = tbf; end
+            3'd6: begin ss_wd[0] = tbusy; ss_wd[1] = tio; ss_wd[2] = txd; end
+            default: ;
+        endcase
+    end
+    initial ss_q = 16'd0;
+    always @(posedge clock) begin
+        ss_v <= ss_a >= SS_BASE && ss_a < 10'(SS_BASE + 7);
+        ss_i <= 3'(ss_a - SS_BASE);
+        ss_q <= ss_v ? ss_wd : 16'd0;
+    end
 endmodule
 /* verilator lint_on DECLFILENAME */
 
@@ -2149,7 +2336,11 @@ module v35_dma (
     output reg         tk_w,            // ... word transfers
     output reg  [1:0]  tk_ps,           // ... SAR's step (01 +, 10 -, else none)
     output reg  [1:0]  tk_pd,           // ... DAR's
-    output reg  [1:0]  dic              // DIC0 / DIC1 IF set (ce_a strobes, pf_set 12 / 13)
+    output reg  [1:0]  dic,             // DIC0 / DIC1 IF set (ce_a strobes, pf_set 12 / 13)
+    // (work order 54) save state: the state port's index (v35_ss, registered) and this module's
+    // word (a register, 0 for any other index)
+    input  wire [9:0]  ss_a,
+    output reg  [15:0] ss_q
 );
     reg [2:0] md0 = 3'd0, md1 = 3'd0;
     reg [1:0] w = 2'b00, edma = 2'b00, go = 2'b00, pend = 2'b00, dfl = 2'b00;
@@ -2314,5 +2505,26 @@ module v35_dma (
                 tk_pd <= dmac_p[5:4];
             end
         end
+    end
+    // (work order 54) the state port's read side (v35_ss_map.tsv, 042h-044h): the select registered
+    // from the index (v35_ss's `ss_a`), then the word (`ss_q`, 0 for any other index); no logic of
+    // the module reads either
+    reg        ss_v = 1'b0;
+    reg  [1:0] ss_i = '0;
+    logic [15:0] ss_wd;
+    always_comb begin
+        ss_wd = 16'd0;
+        case (ss_i)
+            2'd0: begin ss_wd[1:0] = act; ss_wd[3:2] = arm; ss_wd[5:4] = dfl; ss_wd[7:6] = dic; ss_wd[9:8] = dic_p; ss_wd[11:10] = edma; ss_wd[13:12] = go; ss_wd[15:14] = pend; end
+            2'd1: begin ss_wd[2:0] = md0; ss_wd[5:3] = md1; ss_wd[7:6] = rq_p; ss_wd[9:8] = tk_pd; ss_wd[11:10] = tk_ps; ss_wd[13:12] = w; ss_wd[14] = dm_v; ss_wd[15] = gate; end
+            2'd2: begin ss_wd[0] = pick; ss_wd[1] = tk_ch; ss_wd[2] = tk_in; ss_wd[3] = tk_out; ss_wd[4] = tk_w; end
+            default: ;
+        endcase
+    end
+    initial ss_q = 16'd0;
+    always @(posedge clock) begin
+        ss_v <= ss_a >= 10'(10'h042) && ss_a < 10'(10'h042 + 3);
+        ss_i <= 2'(ss_a - 10'(10'h042));
+        ss_q <= ss_v ? ss_wd : 16'd0;
     end
 endmodule

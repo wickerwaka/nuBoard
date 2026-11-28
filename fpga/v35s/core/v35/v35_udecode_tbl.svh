@@ -3,7 +3,7 @@
 // v35_udec2 (the opcode and the byte a DISPM word pops: the ModR/M byte, the 0F page's second byte -> the second entry and
 // the group's operation), v35_umodrm / v35_upage (the bytes a ModR/M or a 0F second byte's pop adds to the bytes still to pop). Included by v35_pkg.sv.
 
-    localparam int UROM_WORDS = 1966;
+    localparam int UROM_WORDS = 1980;
     localparam logic [UADDR_W-1:0] UROM_RESET = 12'd2;
     // (F2b) the I/O trap's entry: the dispatch's target for an I/O form with PSW.BRKI 0
     localparam logic [UADDR_W-1:0] UROM_IOT = 12'd1511;
@@ -12,6 +12,10 @@
     // (F3) the interrupt entry: the dispatch's target when the controller's request, NMI
     // or the single step is taken at an instruction's start
     localparam logic [UADDR_W-1:0] UROM_INT = 12'd1563;
+    // (WO54) the save-state park's entries (zz_ss.uasm): the dispatch's and a TKI0 word's target
+    // with the controller's request (ss_in), a TKI1 word's (ss_k: the overrun's datum first)
+    localparam logic [UADDR_W-1:0] UROM_SS = 12'd1967;
+    localparam logic [UADDR_W-1:0] UROM_SSK = 12'd1966;
     // (MX1) the EA heads: the dispatch's call targets for a ModR/M memory cell (ea.uasm)
     localparam logic [UADDR_W-1:0] UROM_EAB0 = 12'd255;
     localparam logic [UADDR_W-1:0] UROM_EAB8 = 12'd248;

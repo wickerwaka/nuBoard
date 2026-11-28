@@ -115,6 +115,9 @@ module v35_useq
                                         //   AND-OR of registers): the DISP word goes to UROM_INT, not dent
     input  wire        sgo,             // (F5e) an interrupt is taken at a string's take point (a TKI
                                         //   word; v35_intc: an AND-OR of registers): the word's target
+    input  wire        pk,              // (WO54) the save-state request as the controller holds it
+                                        //   (v35_intc's register `pk0`): the dispatch's and the TKI
+                                        //   word's target is the park's (UROM_SS / UROM_SSK) while it stands
     input  wire        ramen,           // (WO46) PRC bit 6 (v35_sfr's register): the internal RAM
                                         //   enabled; RAMEN 0 marks the early end (below)
     // (MX5c) tick B: the next values of the stall's inputs (the D nets of their ce_a registers,
@@ -159,6 +162,8 @@ module v35_useq
     output wire        x_stop,          // ... and it executes
     output wire        x_ivec,          // the take's IVEC word executes (the controller's acknowledge)
     output wire        x_fint,          // FINT executes
+    output wire        x_park,          // (WO54) the save-state park word executes (tick A: v35_ss's frz
+                                        //   loads at this ce_a)
     output wire        q_susp,          // (MX2) prefetching suspended (the queue's susp: SUSP)
     output wire        halted
 );
@@ -226,7 +231,13 @@ module v35_useq
             endcase
         end
     end
-    wire [UADDR_W-1:0] e_tgt = s5 == L40_SQ_TKI0 ? L40_TKI0 : s5 == L40_SQ_TKI1 ? L40_TKI1
+    // (WO54) with the save-state request standing (`pk`, a register loaded at ce_a: the same value
+    // through tick B) a take point's target is the park's, TKI0's (rep_brk) ss_in, TKI1's (si_cmp:
+    // the overrun's datum outstanding) ss_k; registered with the word, as `pk_w` beside it, so the
+    // target and the controller's `sgo` (its pk1, loaded from the same pk at the same edge) agree on
+    // every clock, a stalled TKI word's reread included
+    wire [UADDR_W-1:0] e_tgt = s5 == L40_SQ_TKI0 ? (pk ? UROM_SS : L40_TKI0)
+                             : s5 == L40_SQ_TKI1 ? (pk ? UROM_SSK : L40_TKI1)
                              : tf ? {{(UADDR_W - L40_B_W){1'b0}}, rbb} : '0;
     // the next word as tick B has it (`word_nx`): the early fields raw from the ROM's read data
     // (RA / RB too: a word that names no register reads selector 28..31, which v35_eu's rsel_g
@@ -374,6 +385,10 @@ module v35_useq
     // FINT (x_ivec, x_fint). (KW for k_cur and POST for the EU's post are the EU's flops of
     // word_nx; `pd.post` here)
     reg        su_q = 1'b0, iv_q = 1'b0, fi_q = 1'b0;
+    // (WO54) the park word (v35_l40_ypark: the Y entry SUSP with IST alone, uasm's `park`) and the
+    // save-state request as the word was loaded (`pk_w`: the controller's pk1 on every clock): the
+    // dispatch's taken target, UROM_SS in place of UROM_INT
+    reg        pa_q = 1'b0, pk_w = 1'b0;
     always_comb begin
         word = qe;
         {word.alu, word.ax, word.ay, word.wf, word.cnt} = xq;
@@ -493,6 +508,7 @@ module v35_useq
     assign x_stop = ex_b && w_stop && !wk_b;     // (WO50) STOP's mark does not set the stop state again under its own release
     assign x_ivec = ex_b && iv_q;       // (work order 27) word.alu == AL_IVEC, a flop
     assign x_fint = ex_b && fi_q;       // ... AL_FINT
+    assign x_park = ex && pa_q;         // (WO54) the park word executes (tick A, as x_flush)
     // (MX2) SUSP suspends prefetching (the queue's request line held low from the clock the word
     // is reached until the FLUSH: `sp` once it has executed)
     // (consol) and halted: no prefetch while the sequencer is halted (the loader's fstop read
@@ -656,7 +672,7 @@ module v35_useq
                 SQ_CALL: upc_n = word.tgt;
                 SQ_RET: upc_n = retr;
                 SQ_LOOP: upc_n = cnt != 9'd1 ? word.tgt : inc;
-                SQ_DISP: upc_n = ig_b ? UROM_INT : d1_b;     // (F3) the interrupt take
+                SQ_DISP: upc_n = ig_b ? (pk_w ? UROM_SS : UROM_INT) : d1_b;     // (F3) the interrupt take; (WO54) the park
                 SQ_TKI: upc_n = sg_b ? word.tgt : inc;          // (F5e) a string's take point
                 // (MX3c) EAC: the register path, the EA head (called), or the next word
                 SQ_EAC: upc_n = ecr_b ? word.tgt : ecc_b ? ech_b : inc;
@@ -713,7 +729,7 @@ module v35_useq
             SQ_CALL: nx_a = word.tgt;
             SQ_RET: nx_a = retr;
             SQ_LOOP: nx_a = cnt != 9'd1 ? word.tgt : inc;
-            SQ_DISP: nx_a = igo ? UROM_INT : dent;      // (F3) the interrupt take
+            SQ_DISP: nx_a = igo ? (pk_w ? UROM_SS : UROM_INT) : dent;      // (F3) the interrupt take; (WO54) the park
             SQ_TKI: nx_a = sgo ? word.tgt : inc;        // (F5e) a string's take point
             SQ_EAC: nx_a = ec_reg ? word.tgt : ec_call ? ec_head : inc;
             default: nx_a = inc;
@@ -758,7 +774,9 @@ module v35_useq
     // ((work order 26) the high part's copy of `lt` and of the last stage, `lt_h` / `rah`, went
     // with the high part)
     wire [UADDR_W-1:0] ec0 = ec_call ? ec_head : inc;
-    (* syn_keep = "true" *) wire [UADDR_W-1:0] a1 = s_ec ? word.tgt : s_ds ? UROM_INT
+    // (WO54) the dispatch's taken target: UROM_SS with the save-state request (`pk_w`, a register
+    // beside the word), else UROM_INT; igo still selects last (lt_l)
+    (* syn_keep = "true" *) wire [UADDR_W-1:0] a1 = s_ec ? word.tgt : s_ds ? (pk_w ? UROM_SS : UROM_INT)
                                                    : (s_tk || s_jc) ? word.tgt : s_jn ? inc : ra_e;
     (* syn_keep = "true" *) wire [UADDR_W-1:0] a0 = s_ec ? ec0 : s_ds ? dent
                                                    : (s_tk || s_jc) ? inc : s_jn ? word.tgt : ra_e;
@@ -780,6 +798,8 @@ module v35_useq
             su_q <= v35_l40_ysusp(ya);
             iv_q <= v35_l40_xivec(xa);
             fi_q <= v35_l40_xfint(xa);
+            pa_q <= v35_l40_ypark(ya);
+            pk_w <= pk;
             pd <= pd_nx;
         end
     end
@@ -966,6 +986,11 @@ module v35_useq
         // (the next word with RAMEN, the word now with RAMEN as it was loaded: ramen_c)
         nx_ref = ref_mode(nx_ref, ramen);
         w_ref = ref_mode(w_ref, ramen_c);
+        // (WO54) a take point's target with the save-state request: the park's entries
+        if (nx_ref.seq == SQ_TKI && pk)
+            nx_ref.tgt = nx_ref.tgt == L40_TKI0 ? UROM_SS : UROM_SSK;
+        if (w_ref.seq == SQ_TKI && pk_w)
+            w_ref.tgt = w_ref.tgt == L40_TKI0 ? UROM_SS : UROM_SSK;
         // (WO47, round 4) the derived POST bit the slot reads: a p1 word's in both modes
         pd_ref = pre(nx_ref);
         if (pre(nx_raw).post && nx_raw.vk && !ramen)
@@ -1011,7 +1036,11 @@ module v35_useq
                              $time);
             end
             // the one-bit flops beside the word
-            if (su_q !== word.susp || iv_q !== (word.alu == AL_IVEC) || fi_q !== (word.alu == AL_FINT)) begin
+            if (su_q !== word.susp || iv_q !== (word.alu == AL_IVEC) || fi_q !== (word.alu == AL_FINT)
+                || pa_q !== (word.susp && word.ist && word.d1 == MD_NONE && word.s1 == SR_ZERO
+                             && word.d2 == MD_NONE && word.s2 == SR_ZERO && word.wr == RS_NONE
+                             && word.ws == SR_ZERO && word.ea == EA_NONE && word.bus == BQ_NONE
+                             && word.seg == SG_DEF && !word.pfx && !word.halt)) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: useq: a flop beside the word differs from its field at %0t", $time);

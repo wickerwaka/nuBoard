@@ -37,11 +37,18 @@ localparam int L40_XBITS = 18;   // v35_l40_x.hex: {alu, ax, ay, wf, cnt}
 localparam int L40_YBITS = 35;   // v35_l40_y.hex: {d1, s1, d2, s2, wr, ws, ea, bus, seg, pfx, susp, halt, ist}
 localparam logic [UADDR_W-1:0] L40_TKI0 = 12'd1305;   // take entry 0 (rep_brk+0)
 localparam logic [UADDR_W-1:0] L40_TKI1 = 12'd1897;   // take entry 1 (si_cmp+0)
-// the Y entries with SUSP (2)
+// the Y entries with SUSP (5)
 function automatic logic v35_l40_ysusp(input logic [8:0] a);
     case ({23'd0, a})     // (no 8-bit literal: test_v35_struct's opcode rule)
-        68, 88: v35_l40_ysusp = 1'b1;
+        68, 88, 105, 106, 108: v35_l40_ysusp = 1'b1;
         default: v35_l40_ysusp = 1'b0;
+    endcase
+endfunction
+// the Y entries with PARK (1)
+function automatic logic v35_l40_ypark(input logic [8:0] a);
+    case ({23'd0, a})     // (no 8-bit literal: test_v35_struct's opcode rule)
+        106: v35_l40_ypark = 1'b1;
+        default: v35_l40_ypark = 1'b0;
     endcase
 endfunction
 // the X entries with IVEC (1)

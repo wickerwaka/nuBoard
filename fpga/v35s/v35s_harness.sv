@@ -230,6 +230,10 @@ module v35s_harness #(
         .tt_we(model_tt_we),            // (work order 29) the translation table's load port
         .tt_a(model_tt_a),
         .tt_d(model_tt_d),
+        .ss_req(model_ss_req),          // (work order 54) save state: simulation only (below)
+        .ss_parked(model_ss_parked),
+        .ss_addr(model_ss_addr), .ss_din(16'd0), .ss_we(1'b0), .ss_rd(model_ss_rd),
+        .ss_dout(model_ss_dout), .ss_valid(model_ss_valid),
 `endif
         .refrq_n(model_refrq_n)
     );
@@ -238,6 +242,332 @@ module v35s_harness #(
     // (work order 29) register c8: one write a table entry, a one-clock tt_we
     reg model_tt_we = 1'b0;
     reg [7:0] model_tt_a = 8'd0, model_tt_d = 8'd0;
+    // (work order 54) save state: the core v2's park request. Low (no save state) outside
+    // simulation; in simulation the plusargs below drive it, and without them it stays low
+    reg model_ss_req = 1'b0;
+    wire model_ss_parked;
+    reg  [9:0]  model_ss_addr = 10'd0;
+    reg         model_ss_rd = 1'b0;
+    wire [15:0] model_ss_dout;
+    wire        model_ss_valid;
+`ifndef SYNTHESIS
+    // +v35_ss_at=T      raise ss_req at the run's tick T (run_ticks, from the reset exit), hold it
+    //                   until ss_parked, then K more ticks (+v35_ss_hold=K, default 1), drop it
+    // +v35_ss_every=P   raise it again P ticks after each resume ...
+    // +v35_ss_n=N       ... up to N parks a run (default 1; 0: no limit)
+    // Each park prints `v35 ss: park ...` (stderr): the request's tick, the park's, the latency in
+    // ticks and CPU clocks (ce_a), and the resume's tick
+    // +v35_ss_rd=R      (part 2) at each park, before the hold: read every index (000h-3FFh) through
+    //                   the state port R times, one a clock; print each pass's words (`v35 ss: read`)
+    //                   and every register the map names (`v35 ss: elem`); `v35 chk` if a word's
+    //                   ss_valid does not come four clocks after its ss_rd or two passes differ
+    // +v35_ss_scr=S     (part 2, the dead state's evidence) at each park overwrite the registers
+    //                   v35_ss_class.tsv calls dead (DERIVED "dead": the EU's units and popped-datum
+    //                   registers, the loader's popped bytes, the loop counter, the return register)
+    //                   with random bits (seed S) by hierarchical writes; the run must stay transparent
+    integer   ss_at = -1, ss_hold = 1, ss_every = 0, ss_n = 1, ss_rdn = 0, ss_scr = 0;
+    // the read-out: the pass, the next index to read, the words read (two passes kept), the clock
+    // each read was issued (for ss_valid's delay), the reads issued and answered this pass
+    integer    ss_pass = 0, ss_ix = 0, ss_got = 0, ss_bad = 0;
+    reg [15:0] ss_w0 [0:1023];
+    reg [15:0] ss_w1 [0:1023];
+    reg [31:0] ss_tclk = 32'd0;
+    reg [31:0] ss_tiss [0:1023];
+    string     ss_line;
+    initial begin
+        if (!$value$plusargs("v35_ss_at=%d", ss_at)) ss_at = -1;
+        if (!$value$plusargs("v35_ss_hold=%d", ss_hold)) ss_hold = 1;
+        if (!$value$plusargs("v35_ss_every=%d", ss_every)) ss_every = 0;
+        if (!$value$plusargs("v35_ss_n=%d", ss_n)) ss_n = 1;
+        if (!$value$plusargs("v35_ss_rd=%d", ss_rdn)) ss_rdn = 0;
+        if (!$value$plusargs("v35_ss_scr=%d", ss_scr)) ss_scr = 0;
+    end
+    reg [2:0]  ss_st = 3'd0;
+    reg [31:0] ss_next = 32'd0, ss_treq = 32'd0, ss_tpk = 32'd0, ss_cpu = 32'd0, ss_cnt = 32'd0;
+    integer    ss_done = 0;
+    reg [1:0]  ss_how = 2'd0;           // the park's take: 1 a dispatch, 2 a string's take point, 3 HALT's
+    always @(posedge clock) begin
+        if (!executing) begin
+            ss_st <= 3'd0;
+            ss_next <= 32'(ss_at);
+            ss_done <= 0;
+            model_ss_req <= 1'b0;
+        end else begin
+            case (ss_st)
+                3'd0: if (ss_at >= 0 && run_ticks == ss_next && (ss_n == 0 || ss_done < ss_n)) begin
+                    model_ss_req <= 1'b1;
+                    ss_treq <= run_ticks;
+                    ss_cpu <= 32'd0;
+                    ss_st <= 3'd1;
+                end
+                3'd1: begin
+                    if (model.ce_a) begin
+                        ss_cpu <= ss_cpu + 32'd1;
+                        if (model.intc.pk_x)
+                            ss_how <= model.x_tki ? 2'd2 : model.halted ? 2'd3 : 2'd1;
+                    end
+                    if (model_ss_parked) begin
+                        if (ss_scr != 0) begin
+                            model.eu.mul <= {$random(ss_scr), $random(ss_scr)};
+                            model.eu.dv <= {$random(ss_scr), $random(ss_scr), $random(ss_scr)};
+                            model.eu.bac <= 1'($random(ss_scr));
+                            model.eu.bl <= 8'($random(ss_scr));
+                            model.eu.bor <= 8'($random(ss_scr));
+                            model.eu.bs7 <= 1'($random(ss_scr));
+                            model.eu.dtrap <= 1'($random(ss_scr));
+                            model.eu.f1 <= 1'($random(ss_scr));
+                            model.eu.ms_eq <= 1'($random(ss_scr));
+                            model.eu.scy <= 1'($random(ss_scr));
+                            model.eu.opr <= 16'($random(ss_scr));
+                            model.eu.plo <= 8'($random(ss_scr));
+                            model.eu.rq_d <= 16'($random(ss_scr));
+                            model.eu.pfx_s <= 2'($random(ss_scr));
+                            model.loader.il <= 8'($random(ss_scr));
+                            model.loader.ih <= 8'($random(ss_scr));
+                            model.loader.dl <= 8'($random(ss_scr));
+                            model.loader.dh <= 8'($random(ss_scr));
+                            model.useq.cnt <= 9'($random(ss_scr));
+                            model.useq.retr <= 12'($random(ss_scr));
+                        end
+                        ss_tpk <= run_ticks;
+                        ss_cnt <= 32'(ss_hold);
+                        ss_st <= ss_rdn > 0 ? 3'd5 : 3'd2;
+                        ss_pass = 0;
+                        ss_ix = 0;
+                        ss_got = 0;
+                        $display("v35 ss: park %0d requested %0d parked %0d latency %0d ticks %0d clocks via %s pc %04x:%04x",
+                                 ss_done, ss_treq, run_ticks, run_ticks - ss_treq, ss_cpu,
+                                 ss_how == 2'd2 ? "tki" : ss_how == 2'd3 ? "halt" : "disp",
+                                 model.eu.ps, model.eu.ta);
+                    end
+                end
+                3'd2: begin
+                    if (ss_cnt <= 32'd1) begin
+                        model_ss_req <= 1'b0;
+                        ss_st <= 3'd3;
+                    end else
+                        ss_cnt <= ss_cnt - 32'd1;
+                end
+                3'd3: if (!model_ss_parked) begin
+                    $display("v35 ss: resume %0d at %0d (parked %0d ticks)", ss_done, run_ticks,
+                             run_ticks - ss_tpk);
+                    ss_done <= ss_done + 1;
+                    ss_next <= run_ticks + 32'(ss_every);
+                    ss_st <= ss_every > 0 ? 3'd0 : 3'd4;
+                end
+                3'd5: begin                     // (part 2) the read-out, while parked
+                    model_ss_rd <= ss_ix < 1024;
+                    if (ss_ix < 1024) begin
+                        model_ss_addr <= 10'(ss_ix);
+                        ss_tiss[ss_ix] = ss_tclk + 32'd1;   // on the port from the next clock
+                        ss_ix = ss_ix + 1;
+                    end
+                    if (model_ss_valid) begin
+                        if (ss_tclk != ss_tiss[ss_got] + 32'd4) begin
+                            ss_bad = ss_bad + 1;
+                            if (ss_bad <= 5)
+                                $display("v35 chk: ss: word %0d valid at clock %0d, read at %0d", ss_got,
+                                         ss_tclk, ss_tiss[ss_got]);
+                        end
+                        if (ss_pass == 0) ss_w0[ss_got] = model_ss_dout; else ss_w1[ss_got] = model_ss_dout;
+                        ss_got = ss_got + 1;
+                    end
+                    if (ss_got == 1024) begin
+                        ss_line = "";
+                        for (int k = 0; k < 1024; k++)
+                            ss_line = {ss_line, $sformatf("%04x", ss_pass == 0 ? ss_w0[k] : ss_w1[k])};
+                        $display("v35 ss: read %0d %s", ss_pass, ss_line);
+                        if (ss_pass > 0)
+                            for (int k = 0; k < 1024; k++)
+                                if (ss_w0[k] !== ss_w1[k]) begin
+                                    ss_bad = ss_bad + 1;
+                                    if (ss_bad <= 5)
+                                        $display("v35 chk: ss: word %03x read %04x then %04x", k, ss_w0[k], ss_w1[k]);
+                                end
+                        ss_pass = ss_pass + 1;
+                        ss_ix = 0;
+                        ss_got = 0;
+                        if (ss_pass >= ss_rdn) begin
+                        $display("v35 ss: elem eu.psw %0h", model.eu.psw);
+                        $display("v35 ss: elem eu.ta %0h", model.eu.ta);
+                        $display("v35 ss: elem x_count %0h", model.x_count);
+                        $display("v35 ss: elem pck %0h", model.pck);
+                        $display("v35 ss: elem bus.gph %0h", model.bus.gph);
+                        $display("v35 ss: elem sfr.timer.gph %0h", model.sfr.timer.gph);
+                        $display("v35 ss: elem bus.hold %0h", model.bus.hold);
+                        $display("v35 ss: elem bus.hold_e %0h", model.bus.hold_e);
+                        $display("v35 ss: elem bus.hk %0h", model.bus.hk);
+                        $display("v35 ss: elem bus.hlda_n %0h", model.bus.hlda_n);
+                        $display("v35 ss: elem sfr.h1 %0h", model.sfr.h1);
+                        $display("v35 ss: elem sfr.hrq %0h", model.sfr.hrq);
+                        $display("v35 ss: elem intc.ic_if %0h", model.intc.ic_if);
+                        $display("v35 ss: elem intc.ispr %0h", model.intc.ispr);
+                        $display("v35 ss: elem intc.lv %0h", model.intc.lv);
+                        $display("v35 ss: elem intc.sc %0h", model.intc.sc);
+                        $display("v35 ss: elem intc.nd %0h", model.intc.nd);
+                        $display("v35 ss: elem intc.hw_c %0h", model.intc.hw_c);
+                        $display("v35 ss: elem intc.rq_c %0h", model.intc.rq_c);
+                        $display("v35 ss: elem intc.ir_i %0h", model.intc.ir_i);
+                        $display("v35 ss: elem intc.tk_i %0h", model.intc.tk_i);
+                        $display("v35 ss: elem intc.st_c %0h", model.intc.st_c);
+                        $display("v35 ss: elem intc.ir_vec %0h", model.intc.ir_vec);
+                        $display("v35 ss: elem intc.tk_vec %0h", model.intc.tk_vec);
+                        $display("v35 ss: elem intc.ir_l %0h", model.intc.ir_l);
+                        $display("v35 ss: elem intc.tk_k %0h", model.intc.tk_k);
+                        $display("v35 ss: elem intc.tk_l %0h", model.intc.tk_l);
+                        $display("v35 ss: elem intc.tk_lv %0h", model.intc.tk_lv);
+                        $display("v35 ss: elem intc.mc_ch %0h", model.intc.mc_ch);
+                        $display("v35 ss: elem intc.ms_mode %0h", model.intc.ms_mode);
+                        $display("v35 ss: elem intc.ms_dir %0h", model.intc.ms_dir);
+                        $display("v35 ss: elem intc.sl %0h", model.intc.sl);
+                        $display("v35 ss: elem intc.ak_1 %0h", model.intc.ak_1);
+                        $display("v35 ss: elem intc.ak_q %0h", model.intc.ak_q);
+                        $display("v35 ss: elem intc.brk_arm %0h", model.intc.brk_arm);
+                        $display("v35 ss: elem intc.dv %0h", model.intc.dv);
+                        $display("v35 ss: elem intc.eu_q %0h", model.intc.eu_q);
+                        $display("v35 ss: elem intc.fint_q %0h", model.intc.fint_q);
+                        $display("v35 ss: elem intc.hb %0h", model.intc.hb);
+                        $display("v35 ss: elem intc.i_wake %0h", model.intc.i_wake);
+                        $display("v35 ss: elem intc.ie_dq %0h", model.intc.ie_dq);
+                        $display("v35 ss: elem intc.ie_e %0h", model.intc.ie_e);
+                        $display("v35 ss: elem intc.ie_q %0h", model.intc.ie_q);
+                        $display("v35 ss: elem intc.int_q %0h", model.intc.int_q);
+                        $display("v35 ss: elem intc.ir_bs %0h", model.intc.ir_bs);
+                        $display("v35 ss: elem intc.ir_h %0h", model.intc.ir_h);
+                        $display("v35 ss: elem intc.ir_int %0h", model.intc.ir_int);
+                        $display("v35 ss: elem intc.mf %0h", model.intc.mf);
+                        $display("v35 ss: elem intc.mf_e %0h", model.intc.mf_e);
+                        $display("v35 ss: elem intc.mi_arm %0h", model.intc.mi_arm);
+                        $display("v35 ss: elem intc.ms_hlt %0h", model.intc.ms_hlt);
+                        $display("v35 ss: elem intc.nb_r %0h", model.intc.nb_r);
+                        $display("v35 ss: elem intc.ne %0h", model.intc.ne);
+                        $display("v35 ss: elem intc.nmi_p %0h", model.intc.nmi_p);
+                        $display("v35 ss: elem intc.nmi_v %0h", model.intc.nmi_v);
+                        $display("v35 ss: elem intc.rs_e %0h", model.intc.rs_e);
+                        $display("v35 ss: elem intc.rs_hlt %0h", model.intc.rs_hlt);
+                        $display("v35 ss: elem intc.rs_k %0h", model.intc.rs_k);
+                        $display("v35 ss: elem intc.st_nm %0h", model.intc.st_nm);
+                        $display("v35 ss: elem intc.st_rel %0h", model.intc.st_rel);
+                        $display("v35 ss: elem intc.stp %0h", model.intc.stp);
+                        $display("v35 ss: elem intc.tk_bs %0h", model.intc.tk_bs);
+                        $display("v35 ss: elem intc.tk_dm %0h", model.intc.tk_dm);
+                        $display("v35 ss: elem intc.tk_int %0h", model.intc.tk_int);
+                        $display("v35 ss: elem intc.tk_ms %0h", model.intc.tk_ms);
+                        $display("v35 ss: elem sfr.prc %0h", model.sfr.prc);
+                        $display("v35 ss: elem sfr.rfm %0h", model.sfr.rfm);
+                        $display("v35 ss: elem sfr.wtc %0h", model.sfr.wtc);
+                        $display("v35 ss: elem sfr.idb %0h", model.sfr.idb);
+                        $display("v35 ss: elem sfr.ck_sc %0h", model.sfr.ck_sc);
+                        $display("v35 ss: elem sfr.sbf %0h", model.sfr.sbf);
+                        $display("v35 ss: elem sfr.ck %0h", model.sfr.ck);
+                        $display("v35 ss: elem sfr.ck_off %0h", model.sfr.ck_off);
+                        $display("v35 ss: elem sfr.otout %0h", model.sfr.otout);
+                        $display("v35 ss: elem sfr.pins %0h", model.sfr.pins);
+                        $display("v35 ss: elem sfr.timer.tm0 %0h", model.sfr.timer.tm0);
+                        $display("v35 ss: elem sfr.timer.md0 %0h", model.sfr.timer.md0);
+                        $display("v35 ss: elem sfr.timer.tm1 %0h", model.sfr.timer.tm1);
+                        $display("v35 ss: elem sfr.timer.md1 %0h", model.sfr.timer.md1);
+                        $display("v35 ss: elem sfr.timer.tmc0 %0h", model.sfr.timer.tmc0);
+                        $display("v35 ss: elem sfr.timer.tmc1 %0h", model.sfr.timer.tmc1);
+                        $display("v35 ss: elem sfr.timer.tf %0h", model.sfr.timer.tf);
+                        $display("v35 ss: elem sfr.timer.q %0h", model.sfr.timer.q);
+                        $display("v35 ss: elem sfr.timer.s0 %0h", model.sfr.timer.s0);
+                        $display("v35 ss: elem sfr.timer.s1 %0h", model.sfr.timer.s1);
+                        $display("v35 ss: elem sfr.timer.sm %0h", model.sfr.timer.sm);
+                        $display("v35 ss: elem sfr.timer.h12 %0h", model.sfr.timer.h12);
+                        $display("v35 ss: elem sfr.timer.k128 %0h", model.sfr.timer.k128);
+                        $display("v35 ss: elem sfr.tbc.c %0h", model.sfr.tbc.c);
+                        $display("v35 ss: elem sfr.timer.t128 %0h", model.sfr.timer.t128);
+                        $display("v35 ss: elem sfr.tbc.tbf %0h", model.sfr.tbc.tbf);
+                        $display("v35 ss: elem sfr.ser0.rc %0h", model.sfr.ser0.rc);
+                        $display("v35 ss: elem sfr.ser0.tc %0h", model.sfr.ser0.tc);
+                        $display("v35 ss: elem sfr.ser0.rs %0h", model.sfr.ser0.rs);
+                        $display("v35 ss: elem sfr.ser0.rn %0h", model.sfr.ser0.rn);
+                        $display("v35 ss: elem sfr.ser0.tn %0h", model.sfr.ser0.tn);
+                        $display("v35 ss: elem sfr.ser0.rbf %0h", model.sfr.ser0.rbf);
+                        $display("v35 ss: elem sfr.ser0.rsh %0h", model.sfr.ser0.rsh);
+                        $display("v35 ss: elem sfr.ser0.rerr %0h", model.sfr.ser0.rerr);
+                        $display("v35 ss: elem sfr.ser0.ct_l %0h", model.sfr.ser0.ct_l);
+                        $display("v35 ss: elem sfr.ser0.rx_l %0h", model.sfr.ser0.rx_l);
+                        $display("v35 ss: elem sfr.ser0.rsck %0h", model.sfr.ser0.rsck);
+                        $display("v35 ss: elem sfr.ser0.sck %0h", model.sfr.ser0.sck);
+                        $display("v35 ss: elem sfr.ser0.rxb %0h", model.sfr.ser0.rxb);
+                        $display("v35 ss: elem sfr.ser0.tb %0h", model.sfr.ser0.tb);
+                        $display("v35 ss: elem sfr.ser0.tsh %0h", model.sfr.ser0.tsh);
+                        $display("v35 ss: elem sfr.ser0.se %0h", model.sfr.ser0.se);
+                        $display("v35 ss: elem sfr.ser0.sr %0h", model.sfr.ser0.sr);
+                        $display("v35 ss: elem sfr.ser0.st %0h", model.sfr.ser0.st);
+                        $display("v35 ss: elem sfr.ser0.tbf %0h", model.sfr.ser0.tbf);
+                        $display("v35 ss: elem sfr.ser0.tbusy %0h", model.sfr.ser0.tbusy);
+                        $display("v35 ss: elem sfr.ser0.tio %0h", model.sfr.ser0.tio);
+                        $display("v35 ss: elem sfr.ser0.txd %0h", model.sfr.ser0.txd);
+                        $display("v35 ss: elem sfr.ser1.rc %0h", model.sfr.ser1.rc);
+                        $display("v35 ss: elem sfr.ser1.tc %0h", model.sfr.ser1.tc);
+                        $display("v35 ss: elem sfr.ser1.rs %0h", model.sfr.ser1.rs);
+                        $display("v35 ss: elem sfr.ser1.rn %0h", model.sfr.ser1.rn);
+                        $display("v35 ss: elem sfr.ser1.tn %0h", model.sfr.ser1.tn);
+                        $display("v35 ss: elem sfr.ser1.rbf %0h", model.sfr.ser1.rbf);
+                        $display("v35 ss: elem sfr.ser1.rsh %0h", model.sfr.ser1.rsh);
+                        $display("v35 ss: elem sfr.ser1.rerr %0h", model.sfr.ser1.rerr);
+                        $display("v35 ss: elem sfr.ser1.ct_l %0h", model.sfr.ser1.ct_l);
+                        $display("v35 ss: elem sfr.ser1.rx_l %0h", model.sfr.ser1.rx_l);
+                        $display("v35 ss: elem sfr.ser1.rsck %0h", model.sfr.ser1.rsck);
+                        $display("v35 ss: elem sfr.ser1.sck %0h", model.sfr.ser1.sck);
+                        $display("v35 ss: elem sfr.ser1.rxb %0h", model.sfr.ser1.rxb);
+                        $display("v35 ss: elem sfr.ser1.tb %0h", model.sfr.ser1.tb);
+                        $display("v35 ss: elem sfr.ser1.tsh %0h", model.sfr.ser1.tsh);
+                        $display("v35 ss: elem sfr.ser1.se %0h", model.sfr.ser1.se);
+                        $display("v35 ss: elem sfr.ser1.sr %0h", model.sfr.ser1.sr);
+                        $display("v35 ss: elem sfr.ser1.st %0h", model.sfr.ser1.st);
+                        $display("v35 ss: elem sfr.ser1.tbf %0h", model.sfr.ser1.tbf);
+                        $display("v35 ss: elem sfr.ser1.tbusy %0h", model.sfr.ser1.tbusy);
+                        $display("v35 ss: elem sfr.ser1.tio %0h", model.sfr.ser1.tio);
+                        $display("v35 ss: elem sfr.ser1.txd %0h", model.sfr.ser1.txd);
+                        $display("v35 ss: elem sfr.dma.act %0h", model.sfr.dma.act);
+                        $display("v35 ss: elem sfr.dma.arm %0h", model.sfr.dma.arm);
+                        $display("v35 ss: elem sfr.dma.dfl %0h", model.sfr.dma.dfl);
+                        $display("v35 ss: elem sfr.dma.dic %0h", model.sfr.dma.dic);
+                        $display("v35 ss: elem sfr.dma.dic_p %0h", model.sfr.dma.dic_p);
+                        $display("v35 ss: elem sfr.dma.edma %0h", model.sfr.dma.edma);
+                        $display("v35 ss: elem sfr.dma.go %0h", model.sfr.dma.go);
+                        $display("v35 ss: elem sfr.dma.pend %0h", model.sfr.dma.pend);
+                        $display("v35 ss: elem sfr.dma.md0 %0h", model.sfr.dma.md0);
+                        $display("v35 ss: elem sfr.dma.md1 %0h", model.sfr.dma.md1);
+                        $display("v35 ss: elem sfr.dma.rq_p %0h", model.sfr.dma.rq_p);
+                        $display("v35 ss: elem sfr.dma.tk_pd %0h", model.sfr.dma.tk_pd);
+                        $display("v35 ss: elem sfr.dma.tk_ps %0h", model.sfr.dma.tk_ps);
+                        $display("v35 ss: elem sfr.dma.w %0h", model.sfr.dma.w);
+                        $display("v35 ss: elem sfr.dma.dm_v %0h", model.sfr.dma.dm_v);
+                        $display("v35 ss: elem sfr.dma.gate %0h", model.sfr.dma.gate);
+                        $display("v35 ss: elem sfr.dma.pick %0h", model.sfr.dma.pick);
+                        $display("v35 ss: elem sfr.dma.tk_ch %0h", model.sfr.dma.tk_ch);
+                        $display("v35 ss: elem sfr.dma.tk_in %0h", model.sfr.dma.tk_in);
+                        $display("v35 ss: elem sfr.dma.tk_out %0h", model.sfr.dma.tk_out);
+                        $display("v35 ss: elem sfr.dma.tk_w %0h", model.sfr.dma.tk_w);
+                        for (int k = 0; k < 3; k++) $display("v35 ss: elem intc.idl[%0d] %0h", k, model.intc.idl[k]);
+                        for (int k = 0; k < 128; k++) $display("v35 ss: elem regram.ae[%0d] %0h", k, model.regram.ae[k]);
+                        for (int k = 0; k < 128; k++) $display("v35 ss: elem regram.ao[%0d] %0h", k, model.regram.ao[k]);
+                        for (int k = 0; k < 256; k++) $display("v35 ss: elem sfr.st[%0d] %0h", k, model.sfr.st[k]);
+                            ss_st <= 3'd2;
+                        end
+                    end
+                end
+                default: ;
+            endcase
+        end
+    end
+    always @(posedge clock)
+        ss_tclk <= ss_tclk + 32'd1;
+    // +v35_ss_takes: print every take (an interrupt, NMI, macro service, DMA, the single step) with
+    // the run's tick, so that requests can be placed around one (validation/v35s/sstate.py sweep)
+    reg ss_takes = 1'b0;
+    initial ss_takes = $test$plusargs("v35_ss_takes");
+    always @(posedge clock)
+        if (ss_takes && executing && model.ce_a
+            && (model.intc.take_n || model.intc.take_i || model.intc.take_m || model.intc.take_d
+                || model.intc.take_s))
+            $display("v35 ss: take at %0d", run_ticks);
+`endif
 `endif
     reg [1:0] debug_stage = 2'd0;
     reg debug_accept = 1'b1;

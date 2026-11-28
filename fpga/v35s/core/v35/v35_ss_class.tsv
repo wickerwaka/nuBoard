@@ -1,0 +1,586 @@
+module	name	bits	class	note
+v35_bus	a0_r	1	HISTORY	PIN ONLY: last external cycle's A0
+v35_bus	a18_ube_r	1	HISTORY	PIN ONLY: last external cycle's B2 /UBE value (width == BW_LO)
+v35_bus	a19_r	1	HISTORY	PIN ONLY: last external cycle's A19
+v35_bus	aft	1	DERIVED	set by the FLUSH word (xf, L744), cleared by the dispatch: rule 4c's first boundary of a stream. Loaded by the resume FLUSH
+v35_bus	b4r	1	DERIVED	lv.b4 of the last tick B (needs a fetch delivery): 0 idle
+v35_bus	c4r	1	DERIVED	queue compare of the last tick B (L874); after the flush a function of the flushed queue; read only with fr
+v35_bus	c5r	1	DERIVED	as c4r (L875); read with lc && ych and dlv_fetch
+v35_bus	c_addr	20	DERIVED	stale; pin_f reads it only inside a running cycle
+v35_bus	c_dk	1	DERIVED	gated by pins (n_valid)
+v35_bus	c_half	2	DERIVED	stale (0 or 2 after a completed request); d_p1 copies it every ce_a (gated by d_v)
+v35_bus	c_ia	1	DERIVED	gated by pins (n_valid)
+v35_bus	c_internal	1	DERIVED	stale; selects done_nx (oc_data / data_in) while idle, which reaches only dead values (queue tq0/tq1 read address; done_r load gated by b3_read)
+v35_bus	c_kind	3	DERIVED	holds the last cycle's kind; every reader gated by c_valid/busy, p2_v or d_v; loaded at the next grant (L908)
+v35_bus	c_len	3	DERIVED	stale; gated as c_pos; loaded at the next grant
+v35_bus	c_pos	3	DERIVED	stale (len-1 of the last cycle); readers gated by c_valid, c_rdy/c_tmw inside a cycle, sfr_open; 0 at the next grant
+v35_bus	c_rdy	1	DERIVED	rdy_hold needs pos_now==2 inside a running cycle
+v35_bus	c_tmw	1	DERIVED	tm_hold / oc_land gated by position and sfr_open
+v35_bus	c_valid	1	IDLE	0 once the last cycle's delivery clock has passed and nothing was granted (L882-925). Park condition: no cycle in flight
+v35_bus	c_width	2	DERIVED	stale; as c_addr
+v35_bus	chk_n	32	SIMONLY	
+v35_bus	d_kind	3	DERIVED	= c_kind every ce_a; gated by d_v
+v35_bus	d_p1	1	DERIVED	= (c_half==1) every ce_a; gated by d_v
+v35_bus	d_v	1	IDLE	0 from the second clock after a cycle's last pin clock (d_v_nx = busy && ...)
+v35_bus	data_out	16	HISTORY	PIN ONLY: the last external memory or I/O write's datum; v35_top passes it straight out (L490). No logic reads it
+v35_bus	dc	1	DERIVED	sticky; 0 at a fetch grant (L495); read only with dlv_fetch
+v35_bus	dc_b	1	DERIVED	ce_b copy
+v35_bus	dcu	1	DERIVED	as dc (L496)
+v35_bus	dcu_b	1	DERIVED	ce_b copy
+v35_bus	dk	1	IDLE	0 outside a DMA cycle
+v35_bus	dkt	1	IDLE	0 outside a DMA cycle
+v35_bus	done_r	16	DERIVED	the last read datum. While the queue is empty it is the window's bytes (vb0/vb1, q[] refill, tags) but every consumer is gated by a byte count or an F wait; overwritten by the first read delivery. A resume routine that reads a hidden word makes it deterministic
+v35_bus	dp_half	2	DERIVED	reloaded at B2 before dp_v is read
+v35_bus	dp_v	1	IDLE	0 outside a write's B2
+v35_bus	dr	1	DERIVED	as dc (L497)
+v35_bus	dr_b	1	DERIVED	ce_b copy
+v35_bus	dst	1	DERIVED	the dispatch word waited on the last clock: fixed by the words run
+v35_bus	err_seen	1	SIMONLY	
+v35_bus	error	1	SIMONLY	
+v35_bus	fe	1	DERIVED	sticky; = pend at the first fetch grant (L494); readers need dlv_fetch / fb_nx
+v35_bus	fe_b	1	DERIVED	ce_b copy
+v35_bus	fetch_req_b	1	DERIVED	only the sim check reads it (L1438)
+v35_bus	few	1	DERIVED	= pend && lw at a fetch grant (L593); readers need dlv_fetch
+v35_bus	few_b	1	DERIVED	ce_b copy
+v35_bus	fx	1	DERIVED	reloaded at a fetch grant (L594): 0 at the first one after an idle park (pend 0, req_done 0, sk_b 0); readers need a fetch delivery
+v35_bus	fx_b	1	DERIVED	ce_b copy (chx_nx reads it; effective only with lv.b4 = a delivery)
+v35_bus	g_addr_b	20	DERIVED	as g_sfr_b (= req_addr when no fetch is granted)
+v35_bus	g_dk_b	1	DERIVED	as g_ia_b
+v35_bus	g_half_b	2	DERIVED	as g_sfr_b
+v35_bus	g_ia_b	1	DERIVED	reloaded every ce_b from the grant; read only with g_start_b
+v35_bus	g_kind_b	3	DERIVED	as g_sfr_b
+v35_bus	g_rdy_b	1	DERIVED	as g_ia_b
+v35_bus	g_sfr_b	1	DERIVED	every ce_b from the EU request register + IDB/RAMEN; read only with g_start_b
+v35_bus	g_start_b	1	IDLE	0 when no request stands and the fetch line is low (q_susp)
+v35_bus	g_tmw_b	1	DERIVED	as g_ia_b
+v35_bus	g_width_b	2	DERIVED	as g_sfr_b
+v35_bus	gdbg_t	32	SIMONLY	
+v35_bus	gph	3	SAVED	free-running divide-by-six from reset (L930); sets a timer-register byte cycle's length (tm_hold L410). Never reloaded by anything. v35_timer holds an equal copy: save once, load both
+v35_bus	grant_len_b	3	DERIVED	as g_sfr_b (WTC read live)
+v35_bus	hk	1	SAVED	the hold state (a hold may stand at the freeze): held and idle at the last edge (L1114); converges 2 edges after hold
+v35_bus	hlda_n	1	SAVED	the hold state (a hold may stand at the freeze): /HLDAK pin (L1115); feeds back into hold. Pin-visible
+v35_bus	hold	1	SAVED	the hold state (a hold may stand at the freeze): hrq or !hlda_n (L928). Pin-coupled; converges 3 ce_a after the enables restart (pin_r -> h1 -> hrq -> hold). Blocks every grant (free_h). Recommend SAVED with hold_e/hk/hlda_n, or park only with all inactive and keep the park word standing >= 5 clocks after the restart
+v35_bus	hold_e	1	SAVED	the hold state (a hold may stand at the freeze): hold at the pins' last edge (L1113); converges 1 edge after hold
+v35_bus	intak_n	1	IDLE	1 after an acknowledge cycle's last clock
+v35_bus	iostb_n	1	IDLE	1
+v35_bus	lc	1	DERIVED	sticky (L554); = pend at the first fetch grant. Before that it can set ych if a Y/V word (rl=x with bi) executes; that request's req_ack clears ych again
+v35_bus	lc_b	1	DERIVED	ce_b copy
+v35_bus	ld_d	16	SIMONLY	
+v35_bus	ld_v	1	SIMONLY	
+v35_bus	ld_w	1	SIMONLY	
+v35_bus	ler	1	DERIVED	the loader's sle of the last tick B (the stale op's lead until E); read only with the dispatch word (xd)
+v35_bus	lg	1	DERIVED	sticky while no fetch is granted (L478); reloaded at the first fetch grant with pend (dlv_fetch is 0 there); readers gated by fb_nx / dlv_fetch_nx. Stale value harmless
+v35_bus	lg_b	1	DERIVED	ce_b copy of lg's next value
+v35_bus	lo	1	DERIVED	lw's twin for I/O writes (L553); read as pend && eu_dlv && lo
+v35_bus	lo_b	1	DERIVED	ce_b copy
+v35_bus	lw	1	DERIVED	sticky "last EU cycle granted was a memory write" (L549). Read only at a fetch grant with pend or req_done: each needs an EU cycle whose req_ack reloaded it. EU cycles in the park/resume routine make it a constant anyway
+v35_bus	lw_b	1	DERIVED	ce_b copy
+v35_bus	mreq_n	1	IDLE	1
+v35_bus	mstb_n	1	IDLE	1
+v35_bus	mux_address_r	9	HISTORY	PIN ONLY: holds the last external cycle's B2 column {A9,A8..A1} until the next external cycle's B1. No logic reads it. On-chip cycles do not change it. Save or force only if idle pins must match
+v35_bus	nl	1	DERIVED	sticky; cleared at the first fetch grant (L479); readers need a fetch running or delivered
+v35_bus	nl_b	1	DERIVED	ce_b copy
+v35_bus	oc_be	2	DERIVED	gated by oc_we
+v35_bus	oc_first	1	IDLE	0 from the second clock of an on-chip cycle
+v35_bus	oc_ram	1	DERIVED	captured at each on-chip grant; selects oc_data (dead while idle)
+v35_bus	oc_rdgo	1	IDLE	0 one clock after an on-chip read's start
+v35_bus	oc_sw	1	DERIVED	captured at each on-chip grant; swaps sfr_d (read only at a landing)
+v35_bus	oc_wa	7	DERIVED	gated by oc_we
+v35_bus	oc_wd	16	DERIVED	gated by oc_we
+v35_bus	oc_we	1	IDLE	0 two clocks after an internal-RAM store's capture (the RAM write is at the ce_b between). Do not freeze with oc_we = 1
+v35_bus	p2_v	1	IDLE	0 once a pair's second half was granted; 1 only while a first half runs. Park condition: the request complete
+v35_bus	pd_b	1	IDLE	ce_b copy of pend's next value (0 idle)
+v35_bus	pend	1	IDLE	0 one clock after the last EU cycle's delivery (L480; gave is 0 while the line is low). CAUTION: set during any EU cycle (on-chip too) when lv_q.c4 is up (queue occupancy <= 4; not gated by susp), so occupancy-dependent while the park/resume routine's own EU cycles run; read then only by rl=x words (slot_nx L630). Keep >= 1 cycle-free clock before the first fetch (the flush wait gives 4)
+v35_bus	pl1	1	DERIVED	no-act word executed on the last clock with no release (L870): fixed by the park word; read only with pend && eu_dlv && lo
+v35_bus	read_write_r	1	IDLE	1 when no external cycle (pin_f L1026)
+v35_bus	refresh_row	9	CONST	0: only a K_REFRESH cycle advances it and the grant never issues one
+v35_bus	refrq_n	1	CONST	1 (no refresh cycle is ever granted)
+v35_bus	rh	1	DERIVED	as dc (L498); read as rh && dlv_fetch
+v35_bus	rh_b	1	DERIVED	ce_b copy
+v35_bus	rqo	1	IDLE	0 after req_ack (L871)
+v35_bus	rqvr	1	DERIVED	eu_rq_nx of the last tick B: 0 idle
+v35_bus	rqx	1	DERIVED	rl=x word executed on the last clock: fixed by the park/resume words
+v35_bus	rs1	1	IDLE	= rsv (req_ia && !req_v) of the last clock: 0 if the EU's req_ia (rq_un / rq_rs, v35_eu L856) is low. EU-side condition, not established here
+v35_bus	ry1	1	DERIVED	Y word executed on the last clock: fixed by the park word (0)
+v35_bus	sfr_a	20	DERIVED	captured at each on-chip grant. Drives the regram port C read address and the SFR read offset continuously (dead reads, no strobe)
+v35_bus	sfr_open	1	IDLE	0 once an on-chip store landed (its cycle's first clock; a timer register's at its wait's end)
+v35_bus	sfr_w	2	DERIVED	captured at each on-chip grant
+v35_bus	sk_b	1	IDLE	gave: 0 while the line is low (susp)
+v35_bus	wd_r	16	SIMONLY	
+v35_bus	wd_w	1	SIMONLY	
+v35_bus	wkbn	1	DERIVED	wk_bn's code now
+v35_bus	wkd	1	DERIVED	the word now is the dispatch (L848): fixed by the park word
+v35_bus	wkf	1	DERIVED	FLUSH word now
+v35_bus	wkm	1	DERIVED	the word now is Y/V (from wk_nx every ce_a): fixed by the park word
+v35_bus	wkp	1	DERIVED	word with no kind now
+v35_bus	wkr	1	DERIVED	rl=x word now
+v35_bus	wl_b	1	IDLE	0 with no grant (output to the loader's lead count)
+v35_bus	wur	1	IDLE	0 after the request's req_ack (L569)
+v35_bus	wur_b	1	IDLE	ce_b copy
+v35_bus	ych	1	IDLE	0: cleared by req_ack, by the dispatch word (the take's own, L559) and by a chain's first grant; set only by a Y/V word while lc. For a park at x_tki it is 0 once the string's request was acknowledged
+v35_bus	ych_b	1	IDLE	ce_b copy
+v35_dma	act	2	SAVED	L2159. Channels that have transferred.
+v35_dma	arm	2	SAVED	L2158. Channels armed at the last sampling start.
+v35_dma	dfl	2	SAVED	L2155. Demand flag (rise seen, cleared when DMARQ low). Hidden.
+v35_dma	dic	2	SAVED	L2152. DIC0/1 request strobes (one CPU clock after rs). Not proven idle at the park word.
+v35_dma	dic_p	2	SAVED	L2161. DIC IF to be set at the CPU's next start.
+v35_dma	dm_v	1	SAVED	L2144. = |rq one ce_a ago; rq depends on the live rq_r, so not strictly derivable; read by v35_intc (wake, take). 1 bit.
+v35_dma	edma	2	SAVED	L2155. DMAM bit 3; cleared at TC 0 (L2239/2265).
+v35_dma	gate	1	SAVED	L2160. One instruction runs before the next single take.
+v35_dma	go	2	SAVED	L2155. Memory-to-memory started (TDMA store). Hidden (TDMA reads 0).
+v35_dma	md0	3	SAVED	L2154. DMAM0 7:5. Store L2246 (side effects L2249-2251, L2300). Read plain (dmam0).
+v35_dma	md1	3	SAVED	L2154. DMAM1 7:5.
+v35_dma	pend	2	SAVED	L2155. Single-transfer request latched from a DMARQ rise. Hidden.
+v35_dma	pick	1	SAVED	L2157. Channel of the next take.
+v35_dma	rq_p	2	SAVED	L2156. DMARQ at the last ce_a (edge memory). Restored 0 with DMARQ now high and EDMA: a spurious rise at the first ce_a (pend/dfl set: one false transfer in single mode). Restored 1 with the pin low then rising before the first ce_a: that rise is missed. Alternative: seed from rq_r at resume.
+v35_dma	rq_r	2	DERIVED	L2156. LIVE stage 2. Feeds rq (demand level) and the edge detector.
+v35_dma	rq_s	2	DERIVED	L2156. LIVE synchroniser stage 1 of DMARQ0/1 (input_levels[7:6]).
+v35_dma	tk_ch	1	SAVED	L2146. Take descriptor: channel. Dead until the next take if the park is never inside the DMA routine (then don't care), but that was not established; also read by v35_sfr p2f under dk.
+v35_dma	tk_in	1	SAVED	L2147. As tk_ch.
+v35_dma	tk_out	1	SAVED	L2148. As tk_ch.
+v35_dma	tk_pd	2	SAVED	L2151. As tk_ch.
+v35_dma	tk_ps	2	SAVED	L2150. As tk_ch.
+v35_dma	tk_w	1	SAVED	L2149. As tk_ch.
+v35_dma	w	2	SAVED	L2155. DMAM bit 4 per channel.
+v35_eu	ack_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_eu	addr	16	DERIVED	exit: canonical word
+v35_eu	aq_b	16	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_eu	bac	1	DERIVED	dead
+v35_eu	bl	8	DERIVED	dead
+v35_eu	bor	8	DERIVED	dead: BCDI / the bit fields' init
+v35_eu	bs7	1	DERIVED	dead
+v35_eu	chk_n	32	SIMONLY	
+v35_eu	dm_last	1	DERIVED	dead: MSDC's (the DMA routine)
+v35_eu	dm_tend	1	IDLE	0: a strobe
+v35_eu	dm_tlast	1	IDLE	0: a strobe
+v35_eu	ds0	16	DERIVED	exit: sg_c
+v35_eu	ds1	16	DERIVED	exit: sg_c
+v35_eu	dtrap	1	DERIVED	dead: the divide's
+v35_eu	dv	75	DERIVED	dead: DIVI / CVBI load it
+v35_eu	ea_ss	1	DERIVED	dead: an EA word loads it (BUILDER VERIFY: a seg=DEF post without an EA word)
+v35_eu	ex_w	1	IDLE	1: P1 executed
+v35_eu	f1	1	DERIVED	dead: MULI / DIVI load it
+v35_eu	fw_a	7	DERIVED	clock: the forward of the last write (P1 / P2 write nothing)
+v35_eu	fw_be	2	DERIVED	clock
+v35_eu	fw_d	16	DERIVED	clock
+v35_eu	k_q	1	DERIVED	clock
+v35_eu	la_b	2	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_eu	la_e	2	DERIVED	clock
+v35_eu	lb_b	2	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_eu	lb_e	2	DERIVED	clock
+v35_eu	mf_b	32	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_eu	mfn_b	16	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_eu	ms_end	1	IDLE	0: a strobe
+v35_eu	ms_eq	1	DERIVED	dead: MSEQ loads it
+v35_eu	mul	51	DERIVED	dead: MULI loads it
+v35_eu	ns	1	IDLE	the N/S strap sampled in reset: the board's constant
+v35_eu	opr	16	DERIVED	dead: the entry's datum (the core's own IDB); loaded by the next read's end
+v35_eu	opr_v	1	IDLE	0: the entry's F took the datum
+v35_eu	oprw	16	DERIVED	exit: canonical word
+v35_eu	p_q	1	DERIVED	clock
+v35_eu	pfx_c	1	DERIVED	clock
+v35_eu	pfx_s	2	DERIVED	dead: read under pfx_v
+v35_eu	pfx_v	1	DERIVED	exit: cleared by the exit's E (no pfx): BUILDER VERIFY
+v35_eu	pist	2	DERIVED	exit: the E's (as pfx_v): BUILDER VERIFY
+v35_eu	pist_v	1	DERIVED	exit: as pist
+v35_eu	plo	8	DERIVED	dead: a pair's first half
+v35_eu	ps	16	DERIVED	exit: sg_c's word (the flop from the bank's slot)
+v35_eu	psw	16	SAVED	the PSW: state word 001h, loaded in place
+v35_eu	rae_q	7	DERIVED	clock
+v35_eu	ramen_a	1	DERIVED	clock: PRC bit 6
+v35_eu	rbe_q	7	DERIVED	clock
+v35_eu	rq_addr	20	DERIVED	dead: {IDB, FFFh} of the core's own IDB; loaded by the next post
+v35_eu	rq_cyc	2	IDLE	RQ_MEMR
+v35_eu	rq_d	16	DERIVED	dead: loaded by every write post / K
+v35_eu	rq_dk	1	IDLE	0
+v35_eu	rq_hd	1	IDLE	0
+v35_eu	rq_ia	1	IDLE	0
+v35_eu	rq_io	1	IDLE	0
+v35_eu	rq_off	16	IDLE	0FFFh: the entry's read of IDB
+v35_eu	rq_out	1	IDLE	0: ... and ended
+v35_eu	rq_pair	1	IDLE	0: a byte
+v35_eu	rq_rd	1	IDLE	1: the entry's request is a read
+v35_eu	rq_rs	1	IDLE	0
+v35_eu	rq_un	1	IDLE	0
+v35_eu	rq_v	1	IDLE	0: the entry's read was granted
+v35_eu	rq_word	1	IDLE	0
+v35_eu	rq_wr	1	IDLE	0
+v35_eu	scy	1	DERIVED	dead: the shifter's init
+v35_eu	segv_b	16	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_eu	sigma	16	DERIVED	exit: PASS of tmpa in front of the FLUSH
+v35_eu	sist	16	DERIVED	clock
+v35_eu	ss	16	DERIVED	exit: sg_c
+v35_eu	stepk	16	DERIVED	clock: from PSW.DIR and the format
+v35_eu	sz	1	DERIVED	exit: loaded with SIGMA
+v35_eu	ta	16	SAVED	the restart PC (the park routine's: the instruction's start): state word 002h
+v35_eu	tb	16	DERIVED	exit: canonical word (tmpb <- tmpa)
+v35_eu	tc	16	DERIVED	exit: canonical word
+v35_eu	trap_o	1	SIMONLY	
+v35_eu	weff	1	DERIVED	clock
+v35_eu	x_b	16	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_eu	y_b	16	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_intc	ak_1	1	SAVED	the controller's state
+v35_intc	ak_q	1	SAVED	the controller's state
+v35_intc	brk_arm	1	SAVED	the controller's state
+v35_intc	dv	1	SAVED	the controller's state
+v35_intc	eu_q	1	SAVED	the controller's state
+v35_intc	fint_q	1	SAVED	the controller's state
+v35_intc	hb	1	SAVED	the controller's state
+v35_intc	hw_c	4	SAVED	the controller's state
+v35_intc	i_wake	1	SAVED	the controller's state
+v35_intc	ic_if	15	SAVED	the controller's state
+v35_intc	idbg_run	1	SIMONLY	
+v35_intc	idbg_t	32	SIMONLY	
+v35_intc	idl	12	SAVED	the controller's state
+v35_intc	ie_dq	1	SAVED	the controller's state
+v35_intc	ie_e	1	SAVED	the controller's state
+v35_intc	ie_q	1	SAVED	the controller's state
+v35_intc	int_q	1	SAVED	INT as sampled at the last ce_b (int_q2 takes it at the first ce_b)
+v35_intc	int_q2	1	DERIVED	tickB: <- int_q at the first ce_b
+v35_intc	ir_bs	1	SAVED	the controller's state
+v35_intc	ir_h	1	SAVED	the controller's state
+v35_intc	ir_i	4	SAVED	the controller's state
+v35_intc	ir_int	1	SAVED	the controller's state
+v35_intc	ir_l	3	SAVED	the controller's state
+v35_intc	ir_vec	5	SAVED	the controller's state
+v35_intc	isp_l	4	DERIVED	tickB: from ce_a registers / the pins at the first ce_b
+v35_intc	ispr	8	SAVED	the controller's state
+v35_intc	k1	78	DERIVED	tickB: from ce_a registers / the pins at the first ce_b
+v35_intc	k2	39	DERIVED	clock: the resolution's second stage; settles in two clocks, read at take points and halt words only
+v35_intc	k3	26	DERIVED	tickB: from ce_a registers / the pins at the first ce_b
+v35_intc	lq	8	DERIVED	tickB: from ce_a registers / the pins at the first ce_b
+v35_intc	lv	4	SAVED	the controller's state
+v35_intc	lvh	3	DERIVED	tickB: from ce_a registers / the pins at the first ce_b
+v35_intc	mc_ch	3	SAVED	the controller's state
+v35_intc	mf	1	SAVED	the controller's state
+v35_intc	mf_e	1	SAVED	the controller's state
+v35_intc	mi_arm	1	SAVED	the controller's state
+v35_intc	ms_dir	1	SAVED	the controller's state
+v35_intc	ms_hlt	1	SAVED	the controller's state
+v35_intc	ms_i	4	DERIVED	clock: as ms_v
+v35_intc	ms_mode	3	SAVED	the controller's state
+v35_intc	ms_v	1	DERIVED	clock: as k2 (one clock behind k3)
+v35_intc	nb_r	1	SAVED	the controller's state
+v35_intc	nd	4	SAVED	the controller's state
+v35_intc	ne	1	SAVED	the controller's state
+v35_intc	nmi_h	1	DERIVED	tickB: from ce_a registers / the pins at the first ce_b
+v35_intc	nmi_p	1	SAVED	the controller's state
+v35_intc	nmi_v	1	SAVED	the controller's state
+v35_intc	rq_c	4	SAVED	the controller's state
+v35_intc	rs_e	1	SAVED	the controller's state
+v35_intc	rs_hlt	1	SAVED	the controller's state
+v35_intc	rs_k	1	SAVED	the controller's state
+v35_intc	sc	4	SAVED	the controller's state
+v35_intc	sel_bs	1	DERIVED	tickB: from ce_a registers / the pins at the first ce_b
+v35_intc	sel_i	4	DERIVED	tickB: from ce_a registers / the pins at the first ce_b
+v35_intc	sel_v	1	DERIVED	tickB: from ce_a registers / the pins at the first ce_b
+v35_intc	sl	2	SAVED	the controller's state
+v35_intc	st_c	19	SAVED	the controller's state
+v35_intc	st_nm	1	SAVED	the controller's state
+v35_intc	st_rel	1	SAVED	the controller's state
+v35_intc	stp	1	SAVED	the controller's state
+v35_intc	tk_bs	1	SAVED	the controller's state
+v35_intc	tk_dm	1	SAVED	the controller's state
+v35_intc	tk_i	4	SAVED	the controller's state
+v35_intc	tk_int	1	SAVED	the controller's state
+v35_intc	tk_k	3	SAVED	the controller's state
+v35_intc	tk_l	3	SAVED	the controller's state
+v35_intc	tk_lv	3	SAVED	the controller's state
+v35_intc	tk_ms	1	SAVED	the controller's state
+v35_intc	tk_vec	5	SAVED	the controller's state
+v35_loader	chk_n	32	SIMONLY	
+v35_loader	d1_n	32	SIMONLY	
+v35_loader	d1r	39	DERIVED	v35_udec1(op), loaded with op
+v35_loader	d2_n	32	SIMONLY	
+v35_loader	d_ref	3	SIMONLY	
+v35_loader	dec1_b	39	DERIVED	ce_b pipeline
+v35_loader	df	32	DERIVED	dsp_f(op, mp): the dispatch facts; reloaded at the resume E pop
+v35_loader	dfl	3	DERIVED	FLUSH: 0, then counts delivered bytes to 4
+v35_loader	dh	8	DERIVED	dead: popped bytes, every reader pops first (scramble test; fallback SAVED): as il
+v35_loader	disp_b	1	DERIVED	ce_b pipeline
+v35_loader	dispm_b	1	DERIVED	ce_b pipeline
+v35_loader	dl	8	DERIVED	dead: popped bytes, every reader pops first (scramble test; fallback SAVED): as il
+v35_loader	dmw_b	1	DERIVED	ce_b pipeline
+v35_loader	ds	39	DERIVED	v35_udec1(s_b), loaded with s_b
+v35_loader	dsp_q	1	DERIVED	disp_b of the last clock
+v35_loader	e2_b	1	DERIVED	ce_b pipeline of tick A
+v35_loader	epfx_b	1	DERIVED	ce_b pipeline
+v35_loader	epop_b	1	DERIVED	ce_b pipeline
+v35_loader	erep_b	1	DERIVED	ce_b pipeline
+v35_loader	ew	1	DERIVED	one-clock fact recomputed every ce_a (L861)
+v35_loader	ex_lb	1	DERIVED	ce_b pipeline
+v35_loader	flush_b	1	DERIVED	ce_b pipeline
+v35_loader	fmt	39	DERIVED	loaded at every dispatch (from dec1_b). Stale (the instruction before the park) while the park/resume words run: their acts must not depend on fmt.w / fmt.seg
+v35_loader	hp	1	DERIVED	FLUSH: 0 (a halt word too)
+v35_loader	hp_b	1	DERIVED	hp or hrel (to the EU)
+v35_loader	hrel_b	1	DERIVED	ce_b pipeline
+v35_loader	hw_b	1	DERIVED	ce_b pipeline (1 on every clock of a halt-type park word: clears hp, reloads ins_ip)
+v35_loader	ih	8	DERIVED	dead: popped bytes, every reader pops first (scramble test; fallback SAVED): as il
+v35_loader	il	8	DERIVED	dead: popped bytes, every reader pops first (scramble test; fallback SAVED): popped operand byte; dead at a boundary only by microprogram discipline (every reader pops first); not provable in these files. SAVE (8) or verify
+v35_loader	imo	6	DERIVED	im_f(op_nx) every ce_a
+v35_loader	ims	6	DERIVED	with s_b
+v35_loader	ins_ip	16	DERIVED	loaded by the E pop (L896); it is the PC the park must store (the dispatched instruction's start). A halt word overwrites it with ip (L899): store PC before any halt-type park word
+v35_loader	lc	3	DERIVED	forced 0 from the second ce_a after the FLUSH while dfl != 4 (L718); its one stale clock has no reader (sf_nx reads lc_nx)
+v35_loader	lr0	6	DERIVED	as lr1
+v35_loader	lr1	6	DERIVED	registered outcome of ta() of the next word and registers, every ce_a
+v35_loader	lrx	6	DERIVED	as lr1
+v35_loader	lt	32	SIMONLY	
+v35_loader	mmr_b	1	DERIVED	ce_b pipeline
+v35_loader	modrm	8	DERIVED	dead: popped bytes, every reader pops first (scramble test; fallback SAVED): = mp at every dispatch (so it inherits mp's stale value for an opcode without ModR/M), else a PP_MODRM pop. See mp. SAVE with mp (8) or verify in v35_eu
+v35_loader	mp	8	DERIVED	dead: popped bytes, every reader pops first (scramble test; fallback SAVED): the last ModR/M / page / REP byte an E word popped. Survives FLUSH, E and dispatch when the new opcode pops no second byte, and is copied into modrm at every dispatch. Inside the loader its stale value reaches only fields gated by has_modrm / pg (dsp_f). Pre-existing in normal running; whether the EU ever reads a stale modrm is outside these files. Cheapest: SAVE (8)
+v35_loader	mpm	1	DERIVED	NOT cleared by FLUSH; reloaded by the E pop, cleared by a dispatch; read only at a dispatch (mra <= mpm), which follows an E
+v35_loader	mpop_b	1	DERIVED	ce_b pipeline
+v35_loader	mpp	1	SIMONLY	
+v35_loader	mra	1	DERIVED	FLUSH: 0 (L698)
+v35_loader	need	3	DERIVED	FLUSH: 0 (need_n L393)
+v35_loader	need_b	3	DERIVED	ce_b pipeline
+v35_loader	oadj_ref	4	SIMONLY	
+v35_loader	op	8	DERIVED	loaded by the E pop; stale between FLUSH and E (feeds sf_nx's lead / m3, read only at a dispatch word)
+v35_loader	op3	3	DERIVED	loaded at every dispatch
+v35_loader	op3m_b	3	DERIVED	ce_b pipeline
+v35_loader	opc	8	DERIVED	loaded at every dispatch
+v35_loader	opop_b	1	DERIVED	ce_b pipeline
+v35_loader	pop_b	3	DERIVED	ce_b pipeline
+v35_loader	rdm	2	DERIVED	mcnt_f(modrm) every ce_a (inherits modrm's status; read only by a PP_RD word)
+v35_loader	rls_b	3	DERIVED	ce_b pipeline
+v35_loader	ro_b	1	DERIVED	ce_b pipeline
+v35_loader	rp	3	DERIVED	the release count's registered part, every ce_a
+v35_loader	rpop_b	1	DERIVED	ce_b pipeline
+v35_loader	rsync_n	32	SIMONLY	
+v35_loader	s_b	8	DERIVED	gated by s_v; loaded by the staging load
+v35_loader	s_ip	16	DERIVED	with s_b
+v35_loader	s_v	1	DERIVED	FLUSH: 0 (L876)
+v35_loader	sb0_b	8	DERIVED	head byte copy
+v35_loader	sb1_b	8	SIMONLY	
+v35_loader	sload_b	1	DERIVED	ce_b pipeline
+v35_loader	sx0_b	8	DERIVED	head byte, translated in secure mode (psw_md, tq)
+v35_loader	sx1_b	8	DERIVED	second head byte, translated
+v35_loader	tg_hi	6	DERIVED	bt_f(done_r[15:8])
+v35_loader	tg_lo	6	DERIVED	bt_f(done_r[7:0]): done_r's twin
+v35_loader	trp_n	32	SIMONLY	
+v35_loader	zc	8	DERIVED	zc_f of the next word and registers, every ce_a
+v35_queue	chk_n	32	SIMONLY	
+v35_queue	cnt	3	DERIVED	0 at the ce_a after the FLUSH (cnt_e L284)
+v35_queue	discard	1	IDLE	0 with inflight 0
+v35_queue	faddr_r	16	DERIVED	ce_b copy of flush_addr
+v35_queue	fdb	1	IDLE	0 unless a fetch was granted on a flush clock and still runs (needs a delivery on the flush clock: none on an idle bus). NOT cleared by FLUSH
+v35_queue	flush_r	1	DERIVED	ce_b copy of flush
+v35_queue	flw	3	DERIVED	FLUSH: 4, then counts down (L291): the target's fetch on flush + 5
+v35_queue	fps	20	DERIVED	FLUSH: ps_base at the ce_a after the flush clock (L352). PS must hold its restored value on the FLUSH word's clock
+v35_queue	go_r	1	DERIVED	ce_b copy of fetch_go
+v35_queue	hip	16	DERIVED	FLUSH: flush_addr (L351)
+v35_queue	inflight	1	IDLE	0 when no fetch is in flight. NOT cleared by FLUSH: with 1 at the flush, discard is set and the first fetch moves. Park condition: no fetch in flight
+v35_queue	k4a	5	DERIVED	as k4n
+v35_queue	k4n	5	DERIVED	bound from ob_nx / odd_nx every ce_a (L346)
+v35_queue	k5a	5	DERIVED	as k4n
+v35_queue	kfa	5	DERIVED	as k4n
+v35_queue	kfn	5	DERIVED	as k4n
+v35_queue	ob	5	DERIVED	FLUSH: 0 (L297). Before the flush it is the parked core's occupancy (differs by history): reaches lv_q.c4/cf and lv_nx, i.e. the bus unit's pend / c4r / c5r / b4r and any kinded word's wait
+v35_queue	odd	1	DERIVED	parity of the last fetch; NOT cleared by FLUSH; reloaded at the first fetch grant (pfp[0]). Before that it only selects among dead values (a0; h_odd -> hs with nothing stored; ar_nx in bounds whose z bit is 1 at ob = 0)
+v35_queue	ovf	1	SIMONLY	
+v35_queue	pfp	16	DERIVED	FLUSH: flush_addr (the EU's flush offset = PC) (L359/365)
+v35_queue	q	56	DERIVED	bytes at index >= cnt are unreadable; every ce_a each slot reloads from the window (with cnt 0: done_r's bytes). FLUSH does not clear them; cnt = 0 hides them
+v35_queue	q_t	42	DERIVED	tags, as q
+v35_queue	qt	32	SIMONLY	
+v35_queue	rd_r	3	DERIVED	ce_b copy of pop_n
+v35_queue	rls_r	3	DERIVED	ce_b copy of rls
+v35_queue	tq0	8	DERIVED	block-RAM output register: T[next head byte], reloaded every ce_a
+v35_queue	tq1	8	DERIVED	as tq0 (second head byte)
+v35_queue	tqk_n	32	SIMONLY	
+v35_queue	tt0	2048	CONST	host-loaded configuration (the secure mode's table: tt_we / tt_a / tt_d), never written by the core, no read-back: the host reloads it; not in the state
+v35_queue	tt1	2048	CONST	host-loaded configuration (the secure mode's table: tt_we / tt_a / tt_d), never written by the core, no read-back: the host reloads it; not in the state
+v35_queue	ttc_n	32	SIMONLY	
+v35_refresh	r	24	DERIVED	unobs: the refresh controller's outputs are unread (refresh not served); SAVED the day it is
+v35_regram	ae	1024	SAVED	the register RAM, even bytes (128 x 8): state words 080h-0FFh
+v35_regram	ao	1024	SAVED	the register RAM, odd bytes
+v35_regram	be	1024	DERIVED	copy: port B's copy, written by the same write
+v35_regram	bo	1024	DERIVED	copy
+v35_regram	ce	1024	DERIVED	copy: port C's copy
+v35_regram	co	1024	DERIVED	copy
+v35_regram	ra_d	16	DERIVED	tickB: read again at the first ce_b (the standing word P2 names no register)
+v35_regram	rb_d	16	DERIVED	tickB
+v35_regram	rc_d	16	DERIVED	tickB: read at every ce_b
+v35_serial	ct_l	1	SAVED	L1881. /CTS at the last ce_a: the I/O-mode external clock's rise detector (function used in ser0 only; still a flop in ser1). Restored 0 with /CTS now high: a spurious clock rise shifts one bit into rsh. As rx_l.
+v35_serial	ct_s	2	DERIVED	L1880. LIVE synchroniser of /CTS (input_levels[11]/[12]).
+v35_serial	per	18	DERIVED	L1891. = {brg==0,brg} << (min(scc[3:0],8)+1), from st[69/79], st[6A/7A], one ce_a behind. Parked (no SCC/BRG store for >=1 ce_a): = f(st). After a restore it is the OLD machine's value at the first ce_a, where tc+1==per / rc+1==per|half are evaluated: one bit time can be mis-timed if a frame is in flight. Must be refreshed before resume (enable it with ce_a || frozen) or saved.
+v35_serial	rbf	1	SAVED	L1933. RxB full (cleared by rd_rxb).
+v35_serial	rc	18	SAVED	L1930. Bit-time counter (receive).
+v35_serial	rerr	3	SAVED	L1934. SCE {ERP,ERF,ERO}. Read-only in the map (SCE 6B/7B bits 2:0).
+v35_serial	rn	4	SAVED	L1931. Bits taken.
+v35_serial	rs	3	SAVED	L1929. Receiver state.
+v35_serial	rsck	1	SAVED	L1873. RSCK0 level. CONST 1 in ser1.
+v35_serial	rsh	9	SAVED	L1932. Receive shifter.
+v35_serial	rx_l	1	SAVED	L1881. RxD at the last ce_a (edge memory). Restored 1 with RxD now low and rxe, async, R_IDLE: a start edge is seen at the first ce_a (a spurious frame: SRIC, and SEIC if the line stays low). Restored 0 with the line high: no edge. Alternative: do not restore, seed from rx_s[1] at resume (then a fall that happened during the freeze is lost instead).
+v35_serial	rx_s	2	DERIVED	L1880. LIVE synchroniser of RxD (input_levels[9]/[10]). Follows the pin through the freeze; a restore write is gone in 2 fabric clocks.
+v35_serial	rxb	8	SAVED	L1869. RxB. Read-only in the map.
+v35_serial	sck	1	SAVED	L1872. SCK0 level. CONST 1 in ser1.
+v35_serial	se	1	SAVED	L1877. SEIC request strobe.
+v35_serial	sr	1	SAVED	L1875. SRIC request strobe (one CPU clock).
+v35_serial	st	1	SAVED	L1876. STIC request strobe.
+v35_serial	tb	8	SAVED	L1900. TxB. No read-back in the SFR map.
+v35_serial	tbf	1	SAVED	L1899. TxB full.
+v35_serial	tbusy	1	SAVED	L1901. Shifter busy.
+v35_serial	tc	18	SAVED	L1904. Bit-time counter (transmit).
+v35_serial	tio	1	SAVED	L1905. Frame in flight is I/O-mode. CONST 0 in ser1 (IO_MODE 0).
+v35_serial	tn	4	SAVED	L1903. Bits left.
+v35_serial	tsh	12	SAVED	L1902. Transmit frame shifter.
+v35_serial	txd	1	SAVED	L1871. TxD pin level (an I/O-mode TxD holds its last bit: not derivable).
+v35_sfr	ck	1	SAVED	L426. CLKOUT level: 1 from ce_b, 0 from ce_a. Holds through a freeze (forced 1 while ck_off). Its value is the freeze phase: 1 if frozen after a ce_b, 0 if after a ce_a. If the freeze point is always the same phase (e.g. always after ce_b) it is IDLE at that value; otherwise save it or P07 shows a short/long phase at resume. Read by nothing but its own D and the pin (ck_d, L541).
+v35_sfr	ck_off	1	SAVED	L451. CLKOUT gate closed (pin held high). 0 outside STOP (st_nm clears it). 1 while standing in STOP after the count. With "re-execute STOP" it must be restored/forced 0, else CLKOUT is stuck high while the CPU re-fetches STOP. The st_nm clear leg is not ce-gated.
+v35_sfr	ck_sc	4	SAVED	L450. STOP's CLKOUT count. Outside STOP it is 0 (STOP lasts >= 2^19 clocks, the count 10). Inside STOP: 0 after the 10th clock. With "re-execute STOP after restore" restore it as 0 (x_stop reloads it): see the report, point 5.
+v35_sfr	dl_q	1	IDLE	L375. =dk && dm_last one ce_a ago. Parked with the bus idle: dk (bus unit's DMA window) is 0, so dl_q=0 after one ce_a of park. Condition: >=1 ce_a on the park word with dk low. If that cannot be guaranteed save it (1 bit): restored 0 with dk&&dm_last high would fire dl_go (DIC IF) a second time.
+v35_sfr	h1	1	SAVED	L553. HLDRQ stage 1 = pin_r[23] && pmc2[7]. Level, not edge. Restored 1 with HLDRQ now low: a 1-2 clock false hold request to the bus unit (hrq). Restored 0 with the pin high: the request arrives 2 clocks late (as a fresh request would).
+v35_sfr	hrq	1	SAVED	L108. HLDRQ stage 2, to v35_bus (hold <= hrq || !hlda_n). As h1.
+v35_sfr	idb	8	SAVED	L53. Plain, but it moves the page decode (in_page L235) and the iram base: the ss write must not go through the in_page decode.
+v35_sfr	int_on	1	DERIVED	L64. LIVE: input_levels[5] && st[0A][4]. As poll_p14. v35_intc registers it at ce_a (int_q L1170) and uses it in i_wake (L1361).
+v35_sfr	ip_b	1	DERIVED	L250. =in_page(sfr_a, idb). Recomputed at every ce_b; read only under wr. Parked: no store in flight, and the next store's landing ce_a has a ce_b in front of it (a store is captured at a ce_a, lands at a later ce_a). Stale across the restore but rewritten before use.
+v35_sfr	op0l	8	DERIVED	L493. Copy of st[00] at ce_b (or w_lo early while wr_pend). Parked (wr_pend 0, >=1 ce_b since the last store): == st[00]. BUT read by `pins` on the RAW clock: after a restore of st the copy is stale until the first ce_b, and the pins register (free-running) shows the old machine's port bytes meanwhile. Load the copy together with st (same ss write) or let it follow st while frozen.
+v35_sfr	op1l	8	DERIVED	L493. = st[08]. As op0l.
+v35_sfr	op2l	8	DERIVED	L493. = st[10]. As op0l.
+v35_sfr	opm0	8	DERIVED	L493. = st[01]. As op0l.
+v35_sfr	opm1	8	DERIVED	L493. = st[09]. As op0l.
+v35_sfr	opm2	8	DERIVED	L493. = st[11]. As op0l.
+v35_sfr	opmc0	8	DERIVED	L493. = st[02]. As op0l. (st[02] has no other reader.)
+v35_sfr	opmc1	8	DERIVED	L493. = st[0A]. As op0l.
+v35_sfr	opmc2	8	DERIVED	L493. = st[12]. As op0l.
+v35_sfr	otout	1	SAVED	L495. Copy of timer tout at the last ce_b. tout moves at ce_a (timer q / tmc0), so if the freeze falls between a ce_a and its ce_b, otout != f(saved timer state). DERIVED (=tout) only if the freeze is always after a ce_b. Read by `pins` on the raw clock.
+v35_sfr	pin_r	24	DERIVED	L400. LIVE stage 2. Level use only in this module (port reads p0/p1/p2, rdy_lv, h1's D): no edge detector on it here, so no spurious/missed edge; after resume it shows the pins as they are now, not as saved (READY level pin_r[15] and HLDRQ pin_r[23] are live levels).
+v35_sfr	pin_s	24	DERIVED	L400. LIVE synchroniser stage 1 of pins_in ({P2,P1,P0}). Does not freeze: follows the pins through the freeze. A restore write is overwritten on the next fabric clock: do not save.
+v35_sfr	pins	32	SAVED	L83. Output pin register with keeper: a bit whose drive pd is 0 keeps its last level. Keeper-capable bits: 26, 22:20, 18:17, 15:11, 7:0 (19 bits); the other 13 are always driven (pd const 1) and re-derive in one fabric clock. Free-running: while frozen it keeps following op*/txd/sck/rsck/ck_d/intak_n/hlda_n/dk; a load must come after op* and the serial txd/sck/rsck are loaded (the keeper bits loaded last).
+v35_sfr	poll_p14	1	DERIVED	L62. LIVE: input_levels[5] && st[09][4]. One flop on an input that is not synchronised in this module (input_levels comes straight from the v35_top port; whether it is synchronised upstream was NOT established). Follows the pin and st through the freeze.
+v35_sfr	prc	8	SAVED	L50. Read plain (rbyte L570). Feeds top pck (taken at x_count wrap), tbc tap.
+v35_sfr	rd_data	16	DERIVED	L56. = {r_hi,r_lo} of sfr_a's offset, rewritten at every ce_b. Used by the bus unit only in an on-chip read cycle (oc_data); parked = no read in flight, and a read's datum is taken after a ce_b of its own cycle.
+v35_sfr	rfm	8	SAVED	L52. Plain.
+v35_sfr	sbf	1	SAVED	L224. STBC bit0. Cannot be cleared by any store or by reset: needs a dedicated load term. Not set by STOP.
+v35_sfr	st	2048	SAVED	L223. Live offsets (read somewhere): 00 01 02 08 09 0A 10 11 12 3B 40 44 45 46 4C 4D 4E 65 66 68 69 6A 6C 6D 6E 75 76 78 79 7A 7C 7D 7E 94 95 96 9C 9D 9E A0 A2 AC AD EC (44 bytes, 265 bits under wmask). Dead (written, never read: the function register lives elsewhere): 80-83 88-8B (tm/md), 62 72 (TxB: serial.tb), 90 91 (timer.tmc), A1 A3 (dma md/w/edma), EB E1 E8 E9 FF (prc/rfm/wtc/idb). All other offsets: wmask 0 -> CONST rst(). CAUTION: bits outside wmask are rst() at reset but 0 after the first store (st<=w_lo&wmask): for 4D 4E 6D 6E 7D 7E 9D 9E AD EC bits 2:0 are 7 after reset and 0 after a store; ic_b exports them raw (L323); v35_intc pr_of() is called for the group leads 9C AC 4C 6C 7C (L1196-1200) and gkey's `lead` (L1028; its call sites not traced), whose PR bits are in wmask if they are the same leads; rbyte ORs ones(). So probably not functional, but a bit-exact compare of st differs: save/restore st masked by wmask.
+v35_sfr	tp_b	1	DERIVED	L250. =top(sfr_a). As ip_b.
+v35_sfr	trw_n	32	SIMONLY	
+v35_sfr	wo_b	8	DERIVED	L251. =w_off(sfr_a). As ip_b. NOTE: because it only moves at ce_b, the existing store port cannot be steered by ss while frozen without a mux behind it.
+v35_sfr	wtc	16	SAVED	L51. Plain.
+v35_sfr	ww_b	1	DERIVED	L250. =w_word(sfr_w, sfr_a). As ip_b.
+v35_tbc	c	20	SAVED	L1804. Free count of ce_a from reset.
+v35_tbc	tbf	1	SAVED	L1802. TBIC request strobe (one CPU clock). As timer tf.
+v35_timer	gph	3	SAVED	L1677. Grid divide-by-six. INVARIANT: equals v35_bus.gph (v35_bus.sv L207/L930: same count of ce_a from reset; ce_a only exists after core_run). Could be DERIVED from the bus unit's copy; if saved separately the two must be restored equal.
+v35_timer	h12	1	SAVED	L1678. {h12,gph} = ce_a count mod 12.
+v35_timer	k128	1	SAVED	L1680. /128 carry held to the next /12 edge.
+v35_timer	md0	16	SAVED	L1650. Modulus / one-shot count. Store leg L1766.
+v35_timer	md1	16	SAVED	L1652. Store leg L1770. Never counts: plain storage.
+v35_timer	q	1	SAVED	L1694. TOUT toggle flop.
+v35_timer	s0	1	SAVED	L1689. TM0 start not yet taken by its count edge.
+v35_timer	s1	1	SAVED	L1689. TM1 start pending.
+v35_timer	sm	1	SAVED	L1689. MD0 one-shot start pending.
+v35_timer	t128	7	SAVED	L1679. ce_a count mod 128. INVARIANT: equals v35_tbc.c[6:0] (same reset, same enable): DERIVED from tbc.c if you want to drop 7 bits.
+v35_timer	tf	3	SAVED	L1656. TMIC0-2 request strobes: 1 for the one CPU clock after a count-out; v35_intc sets the IF from pf_set at the next ce_a. A timer can count out in the clock before the freeze whatever the CPU does: not idle.
+v35_timer	tm0	16	SAVED	L1649. Count. Word store leg L1764 (plain, wins over the count). Read whole through rbyte K_W16.
+v35_timer	tm1	16	SAVED	L1651. Store leg L1768.
+v35_timer	tmc0	8	SAVED	L1653. Store L1773 with side effects (L1774-1782); bits 7 and 5 self-clear at one-shot count-outs (L1733, L1746). Reads plain (&FD).
+v35_timer	tmc1	8	SAVED	L1654. Store L1785 (value from w_hi) with side effects L1786-1789.
+v35_top	b_seen	1	IDLE	1: a ce_b since the reset exit
+v35_top	ceb_age	3	DERIVED	unobs: read by the simulation's +v35_ceb only
+v35_top	chk_obn	32	SIMONLY	
+v35_top	chk_oln	32	SIMONLY	
+v35_top	chk_ttn	32	SIMONLY	
+v35_top	core_run	1	IDLE	1: the park needs the core out of reset
+v35_top	ir_addr_c	20	SIMONLY	
+v35_top	o_flin	20	SIMONLY	
+v35_top	o_pc	20	SIMONLY	
+v35_top	o_sa	20	SIMONLY	
+v35_top	pck	2	SAVED	the PCK in force (PRC's is taken at the count's wrap only)
+v35_top	rp_e	1	SIMONLY	
+v35_top	rx_refrq_n	1	IDLE	1 once core_run
+v35_top	started	1	IDLE	1
+v35_top	state_n	6	DERIVED	dead: read only before core_run
+v35_top	x_count	3	SAVED	the X1/8 count: the CPU clock's phase (stopped while frozen)
+v35_useq	at_entry	1	SIMONLY	
+v35_useq	chk_n	32	SIMONLY	
+v35_useq	cnt	9	DERIVED	dead: every reader loads it first (uasm's rule for LOOP / CNTZ)
+v35_useq	d1_b	12	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	dc_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	dr_b	12	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	e2_q	1	IDLE	0
+v35_useq	ecc_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	ech_b	12	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	ecr_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	ed_q	1	IDLE	0
+v35_useq	ee_q	1	IDLE	0
+v35_useq	er_q	1	IDLE	0
+v35_useq	ex_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	fa_q	1	IDLE	0
+v35_useq	fi_q	1	IDLE	0
+v35_useq	ig_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	il_b	8	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	iv_q	1	IDLE	0
+v35_useq	len_b	3	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	lk_o	1	IDLE	0: cleared by the take's dispatch; no E since
+v35_useq	pd	5	IDLE	P2's derived bits (0)
+v35_useq	ph	1	IDLE	0: P2 has no bus-wait kind
+v35_useq	pm_q	1	IDLE	0
+v35_useq	q0	32	SIMONLY	
+v35_useq	q1	32	SIMONLY	
+v35_useq	q2	32	SIMONLY	
+v35_useq	qe	96	IDLE	P2's early fields
+v35_useq	r0	32	SIMONLY	
+v35_useq	r1	32	SIMONLY	
+v35_useq	r2	32	SIMONLY	
+v35_useq	ra_ab	12	SIMONLY	
+v35_useq	ra_rb	12	SIMONLY	
+v35_useq	ramen_c	1	SIMONLY	
+v35_useq	rd	40	IDLE	P2's ROM word (read at P1's ce_b)
+v35_useq	retr	12	DERIVED	dead: every RET follows its CALL / dispatch call
+v35_useq	rom	81920	CONST	
+v35_useq	sg_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	sp	1	IDLE	1: SUSP stands from the entry's first word
+v35_useq	sp_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	sq	1	IDLE	0: no halt word in the park routine's last two words
+v35_useq	st_r	6	IDLE	ex 1: P2 has no pop, no F, no post, no bus-wait kind
+v35_useq	su_q	1	IDLE	1: P2 carries susp
+v35_useq	upc	12	IDLE	P2's address (the word behind the park word)
+v35_useq	upc_ab	12	SIMONLY	
+v35_useq	w_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	wk_b	1	DERIVED	tickB: tick A's result of P2, loaded at the first ce_b
+v35_useq	xq	18	IDLE	P2's X entry
+v35_useq	xtab	4608	CONST	
+v35_useq	yq	35	IDLE	P2's Y entry
+v35_useq	ytab	17920	CONST	
+v35_dma	ss_v	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_dma	ss_i	2	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_dma	ss_q	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_eu	ss_v	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_eu	ss_i	2	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_eu	ss_q	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_bus	ss_v	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_bus	ss_q	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_intc	ss_v	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_intc	ss_i	4	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_intc	ss_q	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_serial	ss_v	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it (x2 instances)
+v35_serial	ss_i	3	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it (x2 instances)
+v35_serial	ss_q	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it (x2 instances)
+v35_sfr	ss_v	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_sfr	ss_i	6	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_sfr	ss_o	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_sfr	ss_s	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_sfr	ss_si	7	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_sfr	ss_sv	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_tbc	ss_v	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_tbc	ss_i	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_tbc	ss_q	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_timer	ss_v	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_timer	ss_i	3	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_timer	ss_q	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_ss	m_q	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_ss	o_i	2	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_ss	o_q	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_ss	o_v	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_ss	rm	1	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_ss	rv	4	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_ss	ss_a	10	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_ss	ss_dout	16	DERIVED	(WO54) the state port's read pipe (the select, the word): no core logic reads it
+v35_intc	pk	1	IDLE	(WO54) the save-state request held: 0 at P2 (cleared by frz)
+v35_intc	pk1	1	IDLE	(WO54) pk a clock later: 1 at P2 (loaded at the park word's ce_a); the first ce_a after the resume loads 0
+v35_useq	pa_q	1	IDLE	(WO54) the park word's flop beside the word: 0 at P2 (ss_x stands)
+v35_useq	pk_w	1	IDLE	(WO54) pk loaded with the word (the controller's pk1): 1 at P2
+v35_ss	frz	1	IDLE	(WO54) the freeze itself: 1 while parked, cleared by the resume
+v35_ss	rq_q	1	HISTORY	(WO54) ss_req as last sampled: the host's level
+v35_top	chk_fq	1	SIMONLY	(WO54) +v35_chk: the freeze last clock
+v35_top	chk_ssn	32	SIMONLY	(WO54) +v35_chk count

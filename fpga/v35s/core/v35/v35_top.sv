@@ -73,7 +73,20 @@ module v35_top
     // never initialises it
     input  wire        tt_we,
     input  wire [7:0]  tt_a,
-    input  wire [7:0]  tt_d
+    input  wire [7:0]  tt_d,
+    // (work order 54) save state (v35_ss; the core README "Work order 54"): hold ss_req high to
+    // park the core; ss_parked rises when it is frozen; ss_req low resumes it. While parked the
+    // state port reads the state word at ss_addr (v35_ss_map.tsv) on a clock of ss_rd, the word on
+    // ss_dout with ss_valid four fabric clocks later; ss_din / ss_we (writes) are taken and not yet
+    // used. Tie ss_req, ss_rd and ss_we low where save state is not used
+    input  wire        ss_req,
+    output wire        ss_parked,
+    input  wire [9:0]  ss_addr,
+    input  wire [15:0] ss_din,
+    input  wire        ss_we,
+    input  wire        ss_rd,
+    output wire [15:0] ss_dout,
+    output wire        ss_valid
 );
     // ---------------------------------------------------------------- SFRs
     wire [7:0] prc, rfm, idb;
@@ -127,7 +140,7 @@ module v35_top
                  .dkt(b_dkt), .dm_v,
                  .dm_go, .dm_ch, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd,
                  .hrq(b_hrq), .hlda_n(b_hlda_n), .rdy_en(b_rdy_en), .rdy_lv(b_rdy_lv),
-                 .x_stop, .st_nm);
+                 .x_stop, .st_nm, .ss_a, .ss_q(q_sfr));
 
     // ---------------------------------------------------------------- CPU clock
     // (work order 36) the divider is a free-running X1/8 count from reset: `x_count` counts every
@@ -141,17 +154,24 @@ module v35_top
     // waits up to 1 CPU clock, from fX/2 up to 3; the CPU clock stays on the reset grid. (Its
     // bus upset on a change from fX/2 to fX/4 is a chip malfunction, not built.) At the target
     // (an X1 rise every fabric tick) fX/2 is still two ticks a CPU clock
+    // (work order 54) the save state's freeze (v35_ss `frz`) stops the count: no state start or
+    // middle while frozen, so no ce_a, ce_b, ce_e or ce_mid; the CPU clock's phase against the
+    // count stands as it was (the first enable after the resume is the ce_b that was due)
+    wire frz;
+    // (work order 54) the state port's index (v35_ss, registered) and the modules' words
+    wire [9:0]  ss_a;
+    wire [15:0] q_eu, q_bus, q_intc, q_sfr;
     reg [2:0] x_count = 3'd0;
     reg [1:0] pck = 2'd2;
     wire [2:0] x_last = pck == 2'd0 ? 3'd1 : pck == 2'd1 ? 3'd3 : 3'd7;
     wire [2:0] x_mid = pck == 2'd0 ? 3'd1 : pck == 2'd1 ? 3'd2 : 3'd4;
-    wire state_start = reset_n && x_rise && (x_count & x_last) == 3'd0;
-    wire state_mid = reset_n && x_rise && (x_count & x_last) == x_mid;
+    wire state_start = reset_n && x_rise && !frz && (x_count & x_last) == 3'd0;
+    wire state_mid = reset_n && x_rise && !frz && (x_count & x_last) == x_mid;
     always @(posedge clock) begin
         if (!reset_n) begin
             x_count <= 3'd0;
             pck <= 2'd2;
-        end else if (x_rise) begin
+        end else if (x_rise && !frz) begin
             x_count <= x_count + 1'b1;
             if (x_count == 3'd0)
                 pck <= prc[1:0];
@@ -225,7 +245,7 @@ module v35_top
             ceb_age <= 3'd7;
         else if (state_mid)
             ceb_age <= 3'd1;
-        else if (ceb_age != 3'd7)
+        else if (ceb_age != 3'd7 && !frz)       // ((WO54) stands while frozen)
             ceb_age <= ceb_age + 3'd1;
         if (!core_reset_n)
             b_seen <= 1'b0;
@@ -241,7 +261,7 @@ module v35_top
             && !$test$plusargs("v35_ticks=2"))
             ceb_k = 3'(ceb_arg);
     end
-    assign ce_b = core_run && !state_mid && (ceb_k == 3'd0 ? state_start : ceb_age == ceb_k);
+    assign ce_b = core_run && !frz && !state_mid && (ceb_k == 3'd0 ? state_start : ceb_age == ceb_k);
 `else
     assign ce_b = core_run && state_start;
 `endif
@@ -313,6 +333,8 @@ module v35_top
     // point, an E word (no boundary; the arms dropped), a FLUSH; STOP's halt word (and executing),
     // the take's IVEC word, FINT
     wire        x_disp, x_tki, x_end, x_nb, x_nbi, x_flush, w_stop, x_ivec, x_fint;   // (WO51) x_stop: above (v35_sfr's)
+    wire        x_park;                 // (WO54) the save state's park word executes (v35_useq)
+    wire        pk;                     // (WO54) the save-state request held (v35_intc's), the park's targets
     // (MX0) the datapath
     wire        opr_rdy, rq_busy, c_sgn, c_dtrap;
     wire        c_xc, c_snz, c_f1, c_dn, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
@@ -369,7 +391,7 @@ module v35_top
         .oc_we, .oc_wa, .oc_be, .oc_wd,
         .a0(c_a0), .a19(c_a19), .a18_ube(c_a18_ube), .mux_address(c_mux_address),
         .data_out(c_data_out), .mreq_n(c_mreq_n), .mstb_n(c_mstb_n), .iostb_n(c_iostb_n),
-        .read_write(c_read_write), .refrq_n(c_refrq_n), .data_in
+        .read_write(c_read_write), .refrq_n(c_refrq_n), .data_in, .ss_a, .ss_q(q_bus)
     );
 
     // ---------------------------------------------------------------- the queue
@@ -424,9 +446,9 @@ module v35_top
         .opr_rdy, .rq_busy, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .q_stall_nx(l_qs_nx), .opr_rdy_nx(e_ordy_nx), .rq_busy_nx(e_rqb_nx),
         .wk_nx(s_wk_nx), .ph_nx(b_ph_nx), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx),
-        .wake(h_wake), .igo, .sgo, .ramen, .w_fa,
+        .wake(h_wake), .igo, .sgo, .pk, .ramen, .w_fa,
         .word, .word_nx, .w_dispm, .w_dispm_nx, .w_erep, .w_erep_nx, .ex, .ex_b, .q_susp, .halted,
-        .x_disp, .x_tki, .x_end, .x_nb, .x_nbi, .x_flush, .w_stop, .x_stop, .x_ivec, .x_fint
+        .x_disp, .x_tki, .x_end, .x_nb, .x_nbi, .x_flush, .w_stop, .x_stop, .x_ivec, .x_fint, .x_park
     );
 
     // ---------------------------------------------------------------- the datapath
@@ -447,7 +469,7 @@ module v35_top
         .opr_rdy, .rq_busy, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .flush_off, .ps_base,
         .psw_f, .flag_we, .flag_d,
-        .oc_we, .oc_wa, .oc_be, .oc_wd
+        .oc_we, .oc_wa, .oc_be, .oc_wd, .ss_a, .ss_q(q_eu)
     );
 
     // ---------------------------------------------------------------- (F3) the interrupt controller
@@ -460,15 +482,23 @@ module v35_top
         .x_disp, .x_tki, .x_end, .x_nb, .x_nbi, .halted, .w_stop, .x_stop,
         .iack(x_ivec), .fint(x_fint),
         .int_on, .ie(psw_ie), .ie_r(psw_ie_r), .brk(psw_brk), .pf_set, .pf_pre, .ms_b, .ms_end, .dm_go, .dm_v, .dm_ch,
+        .ss_req, .frz, .pk, .ss_a, .ss_q(q_intc),
         .igo, .sgo, .wake(h_wake), .take_d, .dm_rs, .dm_smp, .tk_dm, .ms_hlt,
         .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_clr, .tk_bs, .tk_lv, .tk_int,
         .ic_if, .ispr, .tk_vec, .st_nm
     );
 
+    // ---------------------------------------------------------------- (WO54) save state: the freeze
+    v35_ss ss (
+        .clock, .reset_n(core_reset_n), .ce_a, .ss_req, .x_park, .frz, .ss_parked,
+        .ss_addr, .ss_din, .ss_we, .ss_rd, .ss_dout, .ss_valid, .ss_a, .x_count, .pck,
+        .q_eu, .q_bus, .q_intc, .q_sfr, .oc_rd
+    );
+
     // ---------------------------------------------------------------- the register RAM
     v35_regram regram (
         .clock, .ce_a, .ce_b, .ra_next, .ra_early, .rb_early, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data,
-        .oc_ra(sfr_a[7:1]), .oc_rd, .oc_we, .oc_wa, .oc_be, .oc_wd
+        .oc_ra(sfr_a[7:1]), .oc_rd, .oc_we, .oc_wa, .oc_be, .oc_wd, .frz, .ss_a(ss_a[6:0])
     );
     // ---------------------------------------------------------------- refresh (not served)
     wire rf_pending, rf_load;
@@ -558,6 +588,26 @@ module v35_top
     end
     final if (chk_ob && chk_oln != 0)
         $display("v35 chk: top: %0d dispatches before an on-chip store landed", chk_oln);
+    // (work order 54) `+v35_chk`: at every freeze (the first fabric clock of `frz`) the bus is at
+    // rest (DESIGN-SS.md 3.3): no cycle running or granted, no pair's second half, no datum due, no
+    // on-chip store or read open (the bus unit); no fetch in flight, none to discard, no flush wait
+    // (the queue); the EU's request slot free, no unarmed write, no reservation; prefetch suspended
+    // and the bus unit's pend 0
+    reg chk_fq = 1'b0;
+    integer chk_ssn = 0;
+    always @(posedge clock) begin
+        chk_fq <= frz;
+        if (chk_ob && frz && !chk_fq
+            && (bus.c_valid || bus.d_v || bus.p2_v || bus.g_start_b || bus.sfr_open || bus.oc_first
+                || bus.oc_we || bus.oc_rdgo || bus.pend || queue.inflight || queue.discard || queue.fdb
+                || eu.rq_busy || eu.rq_un || eu.rq_rs || !q_susp)) begin
+            chk_ssn = chk_ssn + 1;
+            if (chk_ssn <= 20)
+                $display("v35 chk: top: the bus is not at rest at the save state's freeze at %0t", $time);
+        end
+    end
+    final if (chk_ob && chk_ssn != 0)
+        $display("v35 chk: top: %0d freezes with the bus not at rest", chk_ssn);
     /* verilator lint_on BLKSEQ */
 
     // ---------------------------------------------------------------- observation (simulation)

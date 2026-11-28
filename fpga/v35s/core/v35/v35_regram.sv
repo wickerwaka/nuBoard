@@ -44,7 +44,12 @@ module v35_regram (
     input  wire        oc_we,
     input  wire [6:0]  oc_wa,
     input  wire [1:0]  oc_be,
-    input  wire [15:0] oc_wd
+    input  wire [15:0] oc_wd,
+    // (work order 54) save state: while frozen (v35_ss `frz`: no ce_a or ce_b) port C reads the word
+    // the state port's index names (`ss_a`, its low seven bits: {bank, slot[4:1]}) on every fabric
+    // clock; the first ce_b after the resume reads `oc_ra` again (rc_d has no reader before it)
+    input  wire        frz,
+    input  wire [6:0]  ss_a
 );
     reg [7:0] ae [0:127];           // port A's copy, even bytes
     reg [7:0] ao [0:127];           //               odd bytes
@@ -101,8 +106,8 @@ module v35_regram (
                 co[w_a] <= w_d[15:8];
             end
         end
-        if (ce_b)
-            rc_d <= {co[oc_ra], ce[oc_ra]};
+        if (ce_b || frz)
+            rc_d <= {co[frz ? ss_a : oc_ra], ce[frz ? ss_a : oc_ra]};
         // (MX0) the read addresses latch at ce_b: the word's register selectors are decided
         // in its first tick (the ROM word is a register from ce_a), the data is read in its
         // second; a write at the last ce_a is read back (no forwarding needed)

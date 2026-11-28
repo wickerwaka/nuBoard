@@ -180,7 +180,11 @@ module v35_bus
     output reg         iostb_n,
     output wire        read_write,
     output reg         refrq_n,
-    input  wire [15:0] data_in
+    input  wire [15:0] data_in,
+    // (work order 54) save state: the state port's index (v35_ss, registered) and this unit's word
+    // (003h bits 11:5: the timer grid's phase and the hold bits; a register, 0 for any other index)
+    input  wire [9:0]  ss_a,
+    output reg  [15:0] ss_q
 );
     function automatic logic [2:0] rf_len(input logic [1:0] rfw);   // 3 + RFM.RFW
         case (rfw)
@@ -1434,6 +1438,15 @@ module v35_bus
         end
     end
 `endif
+
+    // (work order 54) the state port's read side (v35_ss_map.tsv): the select, then the word; no
+    // logic of the unit reads either
+    reg        ss_v = 1'b0;
+    initial ss_q = 16'd0;
+    always @(posedge clock) begin
+        ss_v <= ss_a == 10'd3;
+        ss_q <= ss_v ? {4'd0, hlda_n, hk, hold_e, hold, gph, 5'd0} : 16'd0;
+    end
 
     wire unused = &{1'b0, ce_b, n_addr, n_width, fetch_req_b};   // (fetch_req_b: the chk's)
 endmodule

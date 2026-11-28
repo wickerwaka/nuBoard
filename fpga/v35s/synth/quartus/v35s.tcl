@@ -15,7 +15,7 @@ if {[info exists ::env(ROMOFF)] && $::env(ROMOFF)} {
 }
 set_instance_assignment -name AUTO_ROM_RECOGNITION OFF -to "v35_top:dut|v35_loader:loader"
 set_global_assignment -name SDC_FILE v35s.sdc
-foreach f {v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv v35_bus.sv v35_queue.sv v35_loader.sv v35_useq.sv v35_ea.sv v35_eu.sv v35_regram.sv v35_trace.sv v35_sfr.sv v35_refresh.sv v35_top.sv v35_tw.sv v35_tw_top.sv} {
+foreach f {v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv v35_bus.sv v35_queue.sv v35_loader.sv v35_useq.sv v35_ea.sv v35_eu.sv v35_regram.sv v35_trace.sv v35_ss.sv v35_sfr.sv v35_refresh.sv v35_top.sv v35_tw.sv v35_tw_top.sv} {
     set_global_assignment -name SYSTEMVERILOG_FILE $f
 }
 # the wrapper has 10 pins; virtual so the fit is about the logic

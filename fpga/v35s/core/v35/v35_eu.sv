@@ -164,7 +164,11 @@ module v35_eu
     input  wire        oc_we,
     input  wire [6:0]  oc_wa,
     input  wire [1:0]  oc_be,
-    input  wire [15:0] oc_wd
+    input  wire [15:0] oc_wd,
+    // (work order 54) save state: the state port's index (v35_ss, registered) and this module's
+    // word (the PSW at 001h, tmpa, the restart PC, at 002h; a register, 0 for any other index)
+    input  wire [9:0]  ss_a,
+    output reg  [15:0] ss_q
 );
     // ------------------------------------------------------------ registered state
     // (F3b) N/S as last sampled: every fabric clock, no enable (the pin's sampler; (step C) moved
@@ -1175,6 +1179,26 @@ module v35_eu
     // follows the register's write, the slot's claim the datum (psw_ie)
     assign psw_ie_r = psw[V35_PSW_IE];
     assign psw_brk = psw[8];
+
+    // (work order 54) the state port's read side: the select registered from the index, then the
+    // word (v35_ss_map.tsv); no core logic reads either
+    reg        ss_v = 1'b0;
+    reg  [1:0] ss_i = 2'd0;
+    logic [15:0] ss_wd;
+    always_comb begin
+        ss_wd = 16'd0;
+        case (ss_i)
+            2'd1: ss_wd = psw;
+            2'd2: ss_wd = ta;
+            default: ;
+        endcase
+    end
+    initial ss_q = 16'd0;
+    always @(posedge clock) begin
+        ss_v <= ss_a[9:2] == 8'd0;
+        ss_i <= ss_a[1:0];
+        ss_q <= ss_v ? ss_wd : 16'd0;
+    end
 
     wire unused = &{1'b0, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};
 

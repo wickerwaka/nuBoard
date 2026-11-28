@@ -10409,3 +10409,77 @@ condition codes and NT pages unchanged; no port budget row changed. P6 (the cont
   held clock. Not an OUT or HALT case of its own: the same register reads every post.
 - **Result:** f5_lg_a10's `out` I/O writes on silicon's clock in all 16 windows; the corpus unchanged (30,385,
   every run's rows as before); build/overseer/wo53/NOTES.md has every gate line.
+
+## Work order 54: save state, part 1 (the park and the resume)
+
+The design is build/overseer/ss-design/DESIGN-SS.md (the study; the user's rulings of 2026-11-27 on it).
+Function only: silicon has no save state. With `ss_req` low no landed microword's timing changes.
+
+- **Ports (v35_top).** `ss_req` in (hold high to park, low resumes), `ss_parked` out. The harness drives
+  `ss_req` only in simulation (`+v35_ss_at=T`, `+v35_ss_hold=K`, `+v35_ss_every=P`, `+v35_ss_n=N`; each
+  park prints `v35 ss: park ...` and `v35 ss: resume ...`); outside simulation and in the function bench
+  it is tied low.
+- **The offer (v35_intc).** `pk` (pk0): `ss_req` registered at ce_a and held until the freeze, cleared by
+  `frz`; `pk1` a clock later. The park is the top-priority take: `igo` and both legs of `sgo` gain `pk1`
+  (so a dispatch with no-boundary clear, a string's TKI word and HALT's take test all take it); every
+  other take strobe gets `&& !pk1`; the dispatch's own bookkeeping (the arms, `dm_rs`, `dm_smp`, the
+  clears of `ms_hlt` / `rs_hlt`) is skipped only when the park is actually taken (`pk_x = pk1 &&
+  (x_disp && !nb_r || x_tki)`; the note's `!pk1` would also have skipped it at a no-boundary dispatch
+  that runs its instruction); `rs_hlt <= ms_hlt` at the park's take. STOP's INTP sampler hold, called
+  `frz` before, is `stz`. A request in STOP waits for STOP's end (STOP's words are unchanged).
+  A park at a string's take point drops the single step's arm (`brk_arm`): the resume restarts the
+  string at its first prefix, whose dispatch is no step boundary (one trap a string, after its last
+  element); that dispatch loads the arm again from BRK (found by intr.py f5_si_step parked at the
+  take points: the step was taken at the prefix's dispatch; not in the design note).
+- **The entry (v35_useq).** The dispatch's taken target is `pk_w ? UROM_SS : UROM_INT` (`pk_w`, pk
+  loaded with the word: the controller's pk1); a TKI word's target is formed in tick B as `pk ? UROM_SS /
+  UROM_SSK : L40_TKI0 / L40_TKI1`. `x_park`: the park word executes (`pa_q`, a flop beside the word from
+  `v35_l40_ypark` of the Y address).
+- **The microcode (urom/zz_ss.uasm, 14 words after every landed word).** `ss_k` (a compare's take
+  point: the overrun's datum first), `ss_in` (SUSP; tmpc <- PC ist; SIGMA <- MSPC; tmpa <- the restart
+  PC; the on-chip read of IDB at IDB:FFF; F; a `bi` word; a word with no act; the park word), `ss_x`
+  (stands while frozen; tmpb, tmpc, the address and write datum registers <- tmpa; SIGMA <- tmpa; jmp
+  sg_c: the segment flops from the bank's slots, FLUSH to PS:SIGMA, E). uasm: the `park` mark (SUSP with
+  IST and no other Y field, no PC source; every other IST word must move the PC through Y), UROM_SS /
+  UROM_SSK, `v35_l40_ypark`; the routine is kept out of the sharing whole (`SHARE_PINNED_WHOLE`) and its
+  table entries are placed after the landed ones, so the landed ROM image, tables and every landed
+  word's L40 code are unchanged (the files only grow).
+- **The freeze (v35_ss, new).** `frz` loads at the ce_a that ends the park word and clears when
+  `ss_req` (registered) is low; `ss_parked` is `frz`. v35_top: `state_start` / `state_mid` and the X1
+  count's enable take `!frz` (so ce_a, ce_b, ce_e, ce_mid all stop; `+v35_ceb` / ticks=2's `ceb_age` and
+  ce_b likewise). `+v35_chk` asserts the bus at rest at every freeze (DESIGN-SS 3.3's expression).
+- **Checked, the note's open items:** (a) the exit's E clears the prefix state: v35_eu's E-word block
+  loads `pist_v <= pfx || ea == REP` (0 for sg_c's plain E) and clears `pfx_v` on an E whose format is no
+  segment prefix (a string's is not; at a dispatch park `pfx_v` is already 0: no boundary follows a
+  prefix), or on the word after it with RAMEN 0 (`pfx_c`). (b) the ROM address: see build/overseer/wo54.
+- **Accepted limits** (the user's rulings): no park while POLL waits with P14 high, under bus hold, with
+  READY low, in STOP; a REP string with 4+ prefixes parked mid-string loses the leading prefixes. A
+  request standing at the resume's real dispatch is taken there again before the instruction runs (a
+  host re-requesting within ~25 clocks of the resume makes no progress).
+
+## Work order 54, part 2: the state port's read side, the inventory check
+
+- **Ports (v35_top).** `ss_addr[9:0]`, `ss_rd`, `ss_dout[15:0]`, `ss_valid`; `ss_din[15:0]` and `ss_we` are taken
+  (registered in v35_ss) and **do nothing yet**: the write path (load legs, PSW and PC in place) is a later
+  work order. Tied low where unused (the harness outside simulation, the function bench).
+- **The map (v35_ss_map.tsv, version 1).** 300 words: 000h the format 5301h; 001h PSW; 002h tmpa (the restart
+  PC); 003h {gph, PCK, the X1 count} with the bus hold bits and HLDRQ's two stages; 010h-019h the interrupt
+  controller (146 bits); 020h-024h the SFR block's own registers (PRC RFM WTC IDB, the CLKOUT gate, SBF, the TOUT
+  copy, the pin vector); 028h-02Dh the timer; 030h-031h the time base; 032h-038h / 03Ah-040h the serial
+  channels; 042h-044h DMA; 080h-0FFh the register RAM ({bank, slot[4:1]}); 100h-17Fh the SFR byte store raw
+  ({st[2k + 1], st[2k]}). Two rows on the same bits name two copies of one value (v35_bus.gph = v35_timer.gph,
+  v35_tbc.c[6:0] = v35_timer.t128). Unlisted indexes read 0.
+- **The pipe.** v35_ss registers the index (`ss_a`, stage 1); each module holding saved state registers its
+  select from it (stage 2) and its word (`ss_q`, stage 3, 0 for any other index): v35_eu, v35_bus, v35_intc,
+  v35_sfr (its own words and the byte store) and inside it v35_timer, v35_tbc, v35_serial (x2, `SS_BASE`),
+  v35_dma, whose words v35_sfr ORs into its `ss_q`; the register RAM through port C (`rc_d`: while frozen read
+  every fabric clock at `ss_a[6:0]`, stage 2; v35_ss registers it, stage 3); v35_ss ORs all into `ss_dout`
+  (stage 4); `ss_valid` is `ss_rd && frz` four fabric clocks later. No core logic reads any of it; with ss_req
+  low the only changed term on a core path is port C's read enable and address (`ce_b || frz`, `frz ? ss_a :
+  oc_ra`).
+- **The inventory check** (validation/v35s/chains/test_v35_ss.py, ss_inventory.py beside it, the class file
+  v35_ss_class.tsv): every state element classed (a new register fails the test until it has a row), the
+  elaboration and the textual scan agree, the map covers every SAVED element whole and names nothing else.
+- **Simulation.** `+v35_ss_rd=R` (the harness): at each park every index is read R times, one a clock, the
+  words and every register the map names printed; validation/v35s/sstate.py compares them (each word against
+  the map's fields of the registers; the copies against each other; the passes against each other).

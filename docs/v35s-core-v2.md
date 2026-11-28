@@ -4985,3 +4985,34 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   hold or with READY low; latency up to about 4,600 clocks (PREPARE at level 255, the
   BCD strings); the translation table and the idle address / data pins are not in the
   state; edge memories are restored as saved.
+- **2026-11-28, work order 54 landed (build/overseer/wo54; gate land54 against land53,
+  land54 is the baseline now): save state, the park, the resume and the state port's
+  read side.** New ports on v35_top: ss_req, ss_parked, ss_addr[9:0], ss_din[15:0],
+  ss_we, ss_dout[15:0], ss_rd, ss_valid (ss_we / ss_din are taken and do nothing yet).
+  The interrupt controller offers the park (`pk`) as the first take at a dispatch that
+  is a boundary, at a string's take point and in HALT's take test; the bookkeeping of
+  the dispatch is skipped only when the park is taken, and a park at a string's take
+  point drops `brk_arm` (the restarted prefix's dispatch reloads it). The entry routine
+  (urom/zz_ss.uasm, kept out of the sharing so no landed word moves; ROM 1,966 to 1,980
+  words) suspends the prefetch, puts the restart PC in tmpa, waits for the bus and
+  stands on the park word; the new module v35_ss sets `frz`, which removes ce_a, ce_b,
+  ce_e, ce_mid and the X1 count; the exit reloads the segment flops, FLUSHes to PS:tmpa
+  and dispatches. The state map is 300 words (v35_ss_map.tsv; word 0 = 5301h), read
+  through per-module registered words, ss_valid four fabric clocks behind ss_rd, the
+  register RAM through port C. A structural test (test_v35_ss, ss_inventory.py,
+  v35_ss_class.tsv) fails on any state element not classified saved / derived / idle /
+  dead; it and v35_ss.sv are in the gate. Budget raised for these signals only (the
+  user's ruling): bus 19/18, useq 25/29, eu 38/40, regram 3/15, intc 15/17, ss 2/5, the
+  pairs with v35_ss, intc to useq 4. Gate with ss_req low: corpus 30,385 of 30,536, 0
+  rows and 0 pin records different; every program, fuzz, probe, store and haltsweep line
+  identical. Builder's runs with parks (validation/v35s/sstate.py, simulation): 11,174
+  of 11,174 corpus runs transparent (same writes), park latency median 43, maximum 533
+  clocks; 22.9 million words read against the registers, 0 different; the intr programs
+  under a park every 3,001 ticks all pass (207,437 parks), those that place a pin event
+  at a fixed tick differ from the un-parked run as expected. Timing: +1.735 / +2.233 /
+  +2.560 ns (landed +2.670 / +2.879 / +2.657), nothing failing; 10,749 LUT4, 569 ADD,
+  3,126 FF, 36 RAM_5K. OPEN by the user's ruling: the next work order (the write path
+  and the restore) also reduces the read-back logic and brings the three seeds back to
+  within 0.2 ns of land53's, or says why not. OPEN: intr f3_lat stands in HALT for good
+  under repeated parks (the builder: the shifted code, not the park; not checked by the
+  overseer); the dead-state proof (scramble, round trip) waits for the write path.
