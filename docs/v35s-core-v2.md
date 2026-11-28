@@ -4960,3 +4960,28 @@ sessions, every program EQUAL):** measurement only. **The in-service round's lev
   for the next round: no decode bit of the staged opcode in the pending term (source c);
   source d left out; the grant is held until f4_tm's write stream is kept; the port
   budget is raised by the user only.
+- **2026-11-27, save state: the request, the design study and the rulings (build/overseer/
+  ss-design/DESIGN-SS.md, ss_inventory.py, ss_class.tsv; nothing built yet).** The user
+  asked for save-state support: a 16-bit data port in and out, an index port and control
+  signals; the core parks where little state is live, a long REP may not block, a few
+  lost clocks and the queue's bytes are no loss, the core's timing is to be touched as
+  little as possible. Rulings: the work is done here and synced to the standalone
+  project (~/src/nuV35, extracted at 90867a3); ports and wires for save state are
+  approved (the interface budget may be raised for these signals only); 16-bit data. The
+  design: the park is offered by the interrupt controller as the first take at a
+  dispatch, at a string's take point and in HALT's take test; an entry routine suspends
+  the prefetch, puts the restart PC in tmpa, waits for the bus and stands on a park
+  word; a register `frz` then removes the CPU clock's ticks; the exit reloads the
+  segment flops, FLUSHes to PS:tmpa and dispatches, so a save that continues and a
+  restore run the same words. The state is 306 words (2,940 live bits: the register RAM
+  through port C; PSW, PC, the controller's and the peripherals' registers through a
+  flat index decoded in each module, not the SFR store path, whose side effects and read
+  mux rule it out); the queue, the loader, the bus unit's cycle and the EU's temporaries
+  are not saved. Rulings on the study: PSW and PC are loaded in place (load legs on
+  eu.psw and eu.ta; PSW by microcode would run a restored core on its old IE / BRK); the
+  loss of the leading prefixes of a REP string of four or more prefix bytes parked
+  mid-string is accepted (silicon's own rule after an interrupt); a request in STOP waits
+  for STOP's end; accepted limits: no park while POLL waits with P14 high, under a bus
+  hold or with READY low; latency up to about 4,600 clocks (PREPARE at level 255, the
+  BCD strings); the translation table and the idle address / data pins are not in the
+  state; edge memories are restored as saved.
